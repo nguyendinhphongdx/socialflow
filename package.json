@@ -30,7 +30,7 @@
     "rimraf": "^6.0.0",
     "simple-git-hooks": "^2.13.0",
     "turbo": "^2.0.0",
-    "typescript": "^5.9.0"
+    "typescript": "^6.0.3"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm lint-staged",

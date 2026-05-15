@@ -17,11 +17,11 @@
     "socket.io-client": "^4.8.0"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.280",
-    "@types/node": "^22.0.0",
+    "@types/chrome": "^0.1.42",
+    "@types/node": "^25.8.0",
     "esbuild-plugin-copy": "^2.1.0",
     "rimraf": "^6.0.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.9.0"
+    "typescript": "^6.0.3"
   }
 }
