@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+.next
+.turbo
+.prisma
+generated
+coverage
+pnpm-lock.yaml
+*.min.js
+apps/extension/dist

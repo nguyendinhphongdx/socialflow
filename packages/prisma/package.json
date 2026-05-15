@@ -1,0 +1,38 @@
+{
+  "name": "@sociflow/prisma",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./service": "./src/prisma.service.ts"
+  },
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate:dev": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "migrate:reset": "prisma migrate reset --skip-seed",
+    "studio": "prisma studio",
+    "seed": "tsx seed/index.ts",
+    "lint": "eslint . --max-warnings 0",
+    "type-check": "tsc --noEmit",
+    "clean": "rimraf dist .turbo"
+  },
+  "prisma": {
+    "schema": "schema.prisma",
+    "seed": "tsx seed/index.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@prisma/client": "^5.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prisma": "^5.22.0",
+    "rimraf": "^6.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0"
+  }
+}

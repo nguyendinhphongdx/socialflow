@@ -1,0 +1,631 @@
+// Prisma schema — Phase 0 minimal
+// Bổ sung model khác (SocialAccount, PublishRecord, ...) ở từng phase tiếp theo.
+// Spec đầy đủ: docs/03-data-model.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTH (Phase 0)
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  passwordHash  String?
+  name          String?
+  avatarUrl     String?
+  locale        String    @default("vi")
+  role          UserRole  @default(USER)
+
+  // Quota
+  planTier      PlanTier  @default(FREE)
+  planExpiry    DateTime?
+  aiCredits     Int       @default(100)
+
+  // Relations
+  sessions      Session[]
+  apiKeys       ApiKey[]
+  socialAccounts SocialAccount[]
+  accountGroups AccountGroup[]
+  mediaAssets   MediaAsset[]
+  publishRecords PublishRecord[]
+  drafts        Draft[]
+  automationAgents AutomationAgent[]
+  comments      Comment[]
+  autoReplyRules AutoReplyRule[]
+  brandMonitors BrandMonitor[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  @@index([deletedAt])
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum PlanTier {
+  FREE
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+/// Session — lưu refresh token đã hash (sha256).
+/// Mỗi /auth/refresh rotate single-use: revoke old + create new.
+/// Replay detection: nếu refreshTokenSha256 đã revoke được gửi lại → revoke all user sessions.
+model Session {
+  id                  String    @id @default(cuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  refreshTokenSha256  String    @unique
+  userAgent           String?
+  ipAddress           String?
+
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  replacedBySessionId String?              // chain rotation cho audit
+
+  createdAt           DateTime  @default(now())
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+/// API key for 3rd-party access. keyHash = sha256(key). Prefix 8 chars hiển thị.
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  keyHash    String    @unique
+  prefix     String                // "sf_XXXXXXXX"
+  name       String
+
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ============================================
+// SOCIAL ACCOUNTS (Phase 1)
+// ============================================
+
+/// Tài khoản platform user connect (YT/FB/IG/TT).
+/// Token mã hoá AES-256-GCM bằng @sociflow/common/crypto trước khi lưu.
+model SocialAccount {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  platform       AccountPlatform
+  platformUid    String                                  // channel/page/user ID trên platform
+  displayName    String
+  avatarUrl      String?
+  publishMode    PublishMode    @default(API)
+
+  // OAuth credentials (encrypted) — null nếu publishMode = AUTOMATION
+  accessToken    String?       @db.Text
+  refreshToken   String?       @db.Text
+  tokenExpiresAt DateTime?
+  scopes         String[]                                 // OAuth scopes granted
+
+  // Status
+  status         AccountStatus @default(ACTIVE)
+  lastSyncAt     DateTime?
+  metadata       Json?                                    // platform-specific (FB page category, YT channel stats, ...)
+
+  // Group
+  groupId        String?
+  group          AccountGroup? @relation(fields: [groupId], references: [id])
+
+  // Automation
+  agentId        String?
+  agent          AutomationAgent? @relation(fields: [agentId], references: [id])
+
+  // Relations
+  publishRecords PublishRecord[]
+  comments       Comment[]
+  insights       AccountInsight[]
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([userId, platform, platformUid])
+  @@index([userId, platform])
+  @@index([status])
+  @@index([tokenExpiresAt])
+  @@index([deletedAt])
+}
+
+enum AccountPlatform {
+  YOUTUBE
+  FACEBOOK
+  INSTAGRAM
+  TIKTOK
+  // Future: TWITTER, LINKEDIN, ZALO
+}
+
+enum PublishMode {
+  API           // OAuth, server-to-server
+  AUTOMATION    // Browser extension
+  HYBRID        // API default, fallback automation
+}
+
+enum AccountStatus {
+  ACTIVE
+  TOKEN_EXPIRED
+  REVOKED
+  SUSPENDED
+}
+
+/// Nhóm SocialAccount để user quản lý (vd: "Brand A", "Personal").
+model AccountGroup {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  color     String?
+  isDefault Boolean   @default(false)
+
+  accounts  SocialAccount[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([userId])
+  @@index([deletedAt])
+}
+
+// ============================================
+// OAUTH STATE (CSRF protection cho OAuth flow)
+// ============================================
+
+/// Lưu state token cho OAuth flow (PKCE-style). TTL 10 phút.
+/// Khi callback từ provider, verify state này, lấy lại userId + intent.
+model OAuthState {
+  id            String    @id @default(cuid())
+  userId        String?                                  // null nếu là Google login (chưa có user)
+  provider      String                                   // 'youtube', 'google', 'facebook', ...
+  intent        OAuthIntent
+  state         String    @unique                        // random 32 bytes hex
+  codeVerifier  String?                                  // PKCE
+  redirectUri   String
+  metadata      Json?                                    // optional: groupId target, returnUrl, ...
+
+  expiresAt     DateTime
+  consumedAt    DateTime?                                // single-use — set khi callback xử lý xong
+
+  createdAt     DateTime  @default(now())
+
+  @@index([state])
+  @@index([expiresAt])
+}
+
+enum OAuthIntent {
+  LOGIN              // social login (Google login flow)
+  CONNECT_ACCOUNT    // connect platform account (YouTube/FB/...)
+  REAUTHORIZE        // re-grant scopes / refresh permission
+}
+
+// ============================================
+// MEDIA (Phase 1)
+// ============================================
+
+/// Asset upload qua pre-signed R2 URL hoặc generated bởi AI.
+/// `status = UPLOADED` khi client confirm upload xong.
+model MediaAsset {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type          MediaType
+  filename      String
+  mimeType      String
+  sizeBytes     Int
+  durationMs    Int?
+  width         Int?
+  height        Int?
+
+  storageKey    String       @unique               // R2/S3 key
+  publicUrl     String                              // public URL (CDN domain)
+  thumbnailUrl  String?
+  source        MediaSource  @default(UPLOAD)
+  status        MediaStatus  @default(PENDING)
+  aiGenJobId    String?
+  metadata      Json?
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?
+
+  @@index([userId, type])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+enum MediaSource {
+  UPLOAD
+  AI_GEN
+  EXTERNAL_URL
+}
+
+enum MediaStatus {
+  PENDING        // tạo row nhưng client chưa confirm upload
+  UPLOADED       // client confirm OK
+  FAILED         // upload thất bại (xoá sau)
+}
+
+// ============================================
+// PUBLISH (Phase 1)
+// ============================================
+
+/// 1 record per (account, content) — 1 bundle multi-platform → N record có cùng `flowId`.
+model PublishRecord {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId       String
+  account         SocialAccount @relation(fields: [accountId], references: [id])
+
+  flowId          String?                              // bundle ID, nhiều record cùng publish
+  publishMode     PublishMode                          // snapshot từ SocialAccount
+
+  // Automation tasks (1 record → N task nếu retry)
+  automationTasks AutomationTask[]
+
+  // Engagement
+  comments        Comment[]
+  insights        PostInsight[]
+
+  // Content
+  title           String?
+  body            String?       @db.Text
+  mediaIds        String[]                             // FK lỏng tới MediaAsset
+  platformOptions Json?                                // per-platform override
+
+  // Timing
+  publishTime     DateTime                             // scheduled time
+  publishedAt     DateTime?
+
+  // Status
+  status          PublishStatus @default(PENDING)
+  stage           String?
+  errorMessage    String?
+  retryCount      Int           @default(0)
+
+  // Result
+  platformPostId  String?
+  workLink        String?
+
+  // Idempotency cho POST create
+  idempotencyKey  String?       @unique
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  @@index([userId, status])
+  @@index([accountId, status])
+  @@index([publishTime, status])
+  @@index([flowId])
+  @@index([platformPostId])
+  @@index([deletedAt])
+}
+
+/// Draft — bài đang soạn, chưa publish.
+model Draft {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title           String?
+  body            String?   @db.Text
+  mediaIds        String[]
+  platformOptions Json?
+  tags            String[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@index([userId])
+  @@index([deletedAt])
+}
+
+enum PublishStatus {
+  PENDING           // mới tạo, chưa enqueue
+  SCHEDULED         // đợi tới publishTime
+  WAITING_AGENT     // automation mode, agent offline (Phase 5)
+  DISPATCHED        // đã push vào queue/agent
+  IN_PROGRESS       // provider đang xử lý
+  REVIEW_PENDING    // platform review (TT)
+  PUBLISHED         // thành công
+  FAILED            // lỗi cuối cùng (sau retry)
+  CANCELLED         // user cancel
+  REJECTED          // platform reject (content policy)
+}
+
+// ============================================
+// AUTOMATION (Phase 5 — Browser Extension)
+// ============================================
+
+/// Agent = 1 browser extension instance đã pair với user.
+/// `agentTokenSha256` = hash của long-lived JWT (1 year TTL).
+model AutomationAgent {
+  id                  String     @id @default(cuid())
+  userId              String
+  user                User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type                AgentType  @default(EXTENSION)
+
+  // Pair flow
+  pairCode            String?    @unique                  // 6-digit, TTL 5 phút
+  pairCodeExpiresAt   DateTime?
+
+  // Long-lived token
+  agentTokenSha256    String?    @unique                  // hash của JWT
+  publicId            String     @unique @default(cuid()) // hiển thị popup
+
+  // Device fingerprint
+  os                  String?
+  browserName         String?
+  extensionVersion    String?
+  capabilities        String[]                            // ['tiktok','facebook','instagram','youtube','ffmpeg']
+
+  // Runtime state
+  online              Boolean    @default(false)
+  lastSeenAt          DateTime?
+  lastConnectedAt     DateTime?
+
+  // Relations
+  accounts            SocialAccount[]
+  tasks               AutomationTask[]
+
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  revokedAt           DateTime?
+
+  @@index([userId])
+  @@index([online, lastSeenAt])
+  @@index([pairCodeExpiresAt])
+}
+
+enum AgentType {
+  EXTENSION
+  DESKTOP                                                  // future
+}
+
+/// Mỗi task = 1 command server gửi agent.
+model AutomationTask {
+  id                  String      @id @default(cuid())
+  agentId             String
+  agent               AutomationAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  publishRecordId     String?
+  publishRecord       PublishRecord? @relation(fields: [publishRecordId], references: [id])
+
+  command             String                               // 'PUBLISH_POST' | 'FETCH_COMMENTS' | 'AUTO_REPLY'
+  payload             Json
+  status              AutomationTaskStatus @default(PENDING)
+  stage               String?
+  progress            Int         @default(0)
+  result              Json?
+  errorMessage        String?
+  errorScreenshotUrl  String?
+
+  dispatchedAt        DateTime?
+  acknowledgedAt      DateTime?
+  completedAt         DateTime?
+  timeoutAt           DateTime?
+
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@index([agentId, status])
+  @@index([publishRecordId])
+  @@index([timeoutAt])
+}
+
+enum AutomationTaskStatus {
+  PENDING
+  DISPATCHED
+  ACKNOWLEDGED
+  IN_PROGRESS
+  SUCCESS
+  FAILED
+  CANCELLED
+  TIMEOUT
+}
+
+// ============================================
+// ENGAGEMENT (Phase 6 — Comments + Auto-reply + Brand Monitor)
+// ============================================
+
+/// Comment trên 1 post (publish record) hoặc 1 brand mention (Comment.publishRecordId = null).
+/// Sync qua webhook (FB/IG) hoặc poll (TT/YT).
+model Comment {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId         String
+  account           SocialAccount @relation(fields: [accountId], references: [id])
+  publishRecordId   String?
+  publishRecord     PublishRecord? @relation(fields: [publishRecordId], references: [id])
+
+  platform          AccountPlatform
+  platformCommentId String                                  // ID comment trên platform
+  parentCommentId   String?                                 // FK lỏng — comment cha (cho threading)
+
+  // Author info (snapshot tại thời điểm sync)
+  authorId          String                                  // user ID trên platform
+  authorName        String
+  authorAvatarUrl   String?
+
+  // Content
+  text              String    @db.Text
+  mediaUrl          String?                                 // optional image/gif trong comment
+
+  // Reactions snapshot
+  likeCount         Int       @default(0)
+  replyCount        Int       @default(0)
+
+  // Sociflow state
+  status            CommentStatus @default(NEW)
+  repliedAt         DateTime?
+  replyText         String?   @db.Text                     // text reply Sociflow đã đăng
+  replyPlatformId   String?                                 // ID reply comment trên platform
+  autoReplyRuleId   String?                                 // rule trigger reply (nếu tự động)
+  autoReplyRule     AutoReplyRule? @relation(fields: [autoReplyRuleId], references: [id])
+
+  // Timestamps
+  platformCreatedAt DateTime
+  syncedAt          DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  @@unique([accountId, platformCommentId])
+  @@index([userId, status])
+  @@index([accountId, syncedAt])
+  @@index([publishRecordId])
+  @@index([deletedAt])
+}
+
+enum CommentStatus {
+  NEW                    // chưa xử lý
+  REPLIED                // đã reply (manual hoặc auto)
+  IGNORED                // user dismiss
+  SPAM                   // marked spam
+  HIDDEN                 // hidden trên platform
+  DELETED                // xoá trên platform
+}
+
+/// Rule auto-reply theo keyword. Khi comment match → tạo reply qua agent/API.
+model AutoReplyRule {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String                                    // user-facing label
+  enabled         Boolean  @default(true)
+
+  // Match config
+  platforms       AccountPlatform[]                         // applies cho platforms nào
+  accountIds      String[]                                  // FK lỏng — null = áp dụng all account user own
+  keywordsAny     String[]                                  // match nếu chứa BẤT KỲ keyword nào (case-insensitive)
+  keywordsAll     String[]                                  // match nếu chứa TẤT CẢ keywords
+  keywordsNone    String[]                                  // SKIP nếu chứa bất kỳ keyword nào (exclude)
+
+  // Reply template
+  replyTemplate   String   @db.Text                         // có thể chứa biến: {{authorName}}, {{postTitle}}
+  replyDelaySec   Int      @default(60)                     // delay trước khi reply (chống bot-detect)
+
+  // Quota
+  maxRepliesPerDay Int     @default(50)
+  repliesToday    Int      @default(0)
+  lastResetAt     DateTime @default(now())
+
+  // Stats
+  matchCount      Int      @default(0)
+  replyCount      Int      @default(0)
+
+  // Relations
+  comments        Comment[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  @@index([userId, enabled])
+  @@index([deletedAt])
+}
+
+/// Brand monitor — track mention/keyword mới (không thuộc account user).
+/// Search query chạy cron poll qua platform search API.
+model BrandMonitor {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  query           String                                    // keyword search
+  platforms       AccountPlatform[]
+  enabled         Boolean  @default(true)
+
+  lastPolledAt    DateTime?
+  pollIntervalMin Int      @default(60)
+  matchCount      Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  @@index([userId, enabled])
+  @@index([lastPolledAt, enabled])
+}
+
+/// Snapshot insight cho 1 PublishRecord — rollup periodic.
+model PostInsight {
+  id              String        @id @default(cuid())
+  publishRecordId String
+  publishRecord   PublishRecord @relation(fields: [publishRecordId], references: [id], onDelete: Cascade)
+
+  snapshotAt      DateTime      @default(now())
+
+  // Common metrics
+  views           Int           @default(0)
+  likes           Int           @default(0)
+  comments        Int           @default(0)
+  shares          Int           @default(0)
+  saves           Int           @default(0)
+  reachUnique     Int           @default(0)
+
+  // Platform-specific (raw JSON for analytics deep-dive)
+  raw             Json?
+
+  @@index([publishRecordId, snapshotAt])
+}
+
+/// Per-account daily metric rollup — cho dashboard chart.
+model AccountInsight {
+  id              String   @id @default(cuid())
+  accountId       String
+  account         SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  date            DateTime                                  // chỉ giữ midnight UTC
+
+  followers       Int      @default(0)
+  followersDelta  Int      @default(0)                       // so với day trước
+  totalPosts      Int      @default(0)
+  totalEngagement Int      @default(0)
+  reach           Int      @default(0)
+
+  raw             Json?
+
+  @@unique([accountId, date])
+  @@index([accountId, date])
+}

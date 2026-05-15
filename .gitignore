@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build
+dist/
+build/
+.next/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test
+coverage/
+playwright-report/
+test-results/
+.vitest-cache/
+
+# Logs
+*.log
+logs/
+
+# Prisma
+*.db
+*.db-journal
+prisma/migrations/dev/
+
+# Extension build
+apps/extension/dist/
+apps/extension/*.zip
+apps/extension/.crx
+
+# Docs index (generated)
+docs/index.json
+
+# Misc
+.cache/
+
+# Claude Code local
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

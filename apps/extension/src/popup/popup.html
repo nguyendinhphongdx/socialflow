@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sociflow Agent</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      width: 340px;
+      padding: 16px;
+      margin: 0;
+      color: #1a1a1a;
+      background: #fff;
+    }
+    h1 {
+      font-size: 16px;
+      margin: 0 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h1::before {
+      content: "";
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border-radius: 4px;
+    }
+    p { font-size: 13px; color: #475569; margin: 4px 0; }
+    label { display: block; font-size: 12px; color: #334155; margin-bottom: 6px; font-weight: 500; }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 18px;
+      letter-spacing: 6px;
+      text-align: center;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      outline: none;
+    }
+    input[type="text"]:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+    button {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button.primary { background: #6366f1; color: #fff; }
+    button.primary:hover { background: #4f46e5; }
+    button.primary:disabled { background: #c7d2fe; cursor: not-allowed; }
+    button.danger { background: #fee2e2; color: #b91c1c; }
+    button.danger:hover { background: #fecaca; }
+    .status {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .status--idle { background: #f1f5f9; color: #64748b; }
+    .status--ok { background: #dcfce7; color: #166534; }
+    .status--err { background: #fee2e2; color: #b91c1c; }
+    .error {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+    .info-block {
+      margin-top: 10px;
+      padding: 10px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+    }
+    .info-block dt { font-size: 11px; color: #64748b; }
+    .info-block dd { font-size: 13px; margin: 2px 0 8px; font-family: ui-monospace, Menlo, monospace; }
+    .hint { font-size: 11px; color: #94a3b8; margin-top: 6px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Sociflow Agent</h1>
+
+  <div id="state-unpaired">
+    <p>Nhập mã 6 chữ số từ web Sociflow để liên kết extension.</p>
+    <form id="pair-form">
+      <label for="pair-code">Mã pair</label>
+      <input
+        type="text"
+        id="pair-code"
+        name="pair-code"
+        maxlength="6"
+        inputmode="numeric"
+        pattern="\d{6}"
+        placeholder="000000"
+        autocomplete="off"
+        required
+      />
+      <button type="submit" class="primary" id="pair-submit">Liên kết</button>
+    </form>
+    <div id="pair-error" class="error hidden"></div>
+    <p class="hint">Truy cập Sociflow trên web để lấy mã.</p>
+  </div>
+
+  <div id="state-paired" class="hidden">
+    <p>
+      <span class="status status--idle" id="ws-status">Đang kết nối...</span>
+    </p>
+    <div class="info-block">
+      <dt>Agent ID</dt>
+      <dd id="info-agent-id">-</dd>
+      <dt>WS endpoint</dt>
+      <dd id="info-ws-url">-</dd>
+    </div>
+    <button type="button" class="danger" id="disconnect-btn">Hủy liên kết</button>
+  </div>
+
+  <script type="module" src="./popup.js"></script>
+</body>
+</html>

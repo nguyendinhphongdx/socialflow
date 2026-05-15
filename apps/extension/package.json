@@ -1,0 +1,27 @@
+{
+  "name": "@sociflow/extension",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "build:prod": "NODE_ENV=production tsup",
+    "lint": "eslint . --max-warnings 0",
+    "type-check": "tsc --noEmit",
+    "clean": "rimraf dist .turbo"
+  },
+  "dependencies": {
+    "@sociflow/common": "workspace:*",
+    "@sociflow/ws-protocol": "workspace:*",
+    "socket.io-client": "^4.8.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.280",
+    "@types/node": "^22.0.0",
+    "esbuild-plugin-copy": "^2.1.0",
+    "rimraf": "^6.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.9.0"
+  }
+}

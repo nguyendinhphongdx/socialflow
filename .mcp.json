@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/mcp.json",
+  "mcpServers": {
+    "sociflow-docs": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "./docs",
+        "./.claude"
+      ],
+      "description": "Truy cập docs/ và .claude/ của Sociflow — đọc, list, search file. Dùng khi cần tra cứu spec, convention, ADR, platform docs."
+    },
+    "sociflow-memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "description": "Knowledge graph cục bộ — lưu entity, relation, observation về domain Sociflow trong phiên làm việc. Dùng khi exploration codebase phức tạp cần ghi nhớ context."
+    }
+  }
+}
