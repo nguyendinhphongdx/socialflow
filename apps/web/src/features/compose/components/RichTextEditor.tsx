@@ -30,7 +30,7 @@ export function RichTextEditor({ value, onChange, placeholder = 'Nhập nội du
       const text = editor.getText()
       if (maxLength && text.length > maxLength) {
         // hard cap — không cho vượt
-        editor.commands.setContent(value, { emitUpdate: false })
+        editor.commands.setContent(value, false)
         return
       }
       onChange(editor.getHTML())
@@ -41,7 +41,7 @@ export function RichTextEditor({ value, onChange, placeholder = 'Nhập nội du
 
   useEffect(() => {
     if (editor && value !== editor.getHTML()) {
-      editor.commands.setContent(value, { emitUpdate: false })
+      editor.commands.setContent(value, false)
     }
   }, [value, editor])
 

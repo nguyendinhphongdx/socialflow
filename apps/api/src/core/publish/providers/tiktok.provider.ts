@@ -100,7 +100,7 @@ export class TikTokProvider implements PublishProvider {
   }
 
   private async waitForPublishComplete(accessToken: string, publishId: string): Promise<PublishResult> {
-    for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
+    for (const _ of Array.from({ length: MAX_POLL_ATTEMPTS })) {
       const status = await this.fetchStatus(accessToken, publishId)
       const code = status.status
       if (code === 'PUBLISH_COMPLETE' || code === 'SEND_TO_USER_INBOX') {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import axios from 'axios'
 import type { OAuthIntent } from '@sociflow/prisma'
 import { AppException, ResponseCode } from '@sociflow/common'
@@ -32,6 +32,8 @@ const STATE_TTL_MS = 10 * 60 * 1000     // 10 phút
  */
 @Injectable()
 export class OAuthService {
+  private readonly logger = new Logger(OAuthService.name)
+
   constructor(private readonly stateRepo: OAuthStateRepository) {}
 
   async buildAuthorizeUrl(opts: BuildAuthUrlOptions): Promise<string> {
@@ -83,9 +85,15 @@ export class OAuthService {
       body.toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
     ).catch((err) => {
-      throw new AppException(ResponseCode.AccountOAuthFailed, {
+      // Log details server-side (full provider response giúp debug) nhưng
+      // KHÔNG trả về client — tránh leak nội bộ provider (vd hint user enumeration,
+      // misconfig client id, scope sai...).
+      this.logger.error(
+        `OAuth token exchange failed [provider=${opts.provider.id}] status=${err.response?.status ?? 'n/a'} data=${JSON.stringify(err.response?.data ?? null)}`,
+      )
+      throw new AppException(ResponseCode.OAuthProviderError, {
         reason: 'token_exchange_failed',
-        details: err.response?.data,
+        provider: opts.provider.id,
       })
     })
 
@@ -113,9 +121,12 @@ export class OAuthService {
       body.toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
     ).catch((err) => {
+      this.logger.error(
+        `OAuth token refresh failed [provider=${provider.id}] status=${err.response?.status ?? 'n/a'} data=${JSON.stringify(err.response?.data ?? null)}`,
+      )
       throw new AppException(ResponseCode.AccountTokenExpired, {
         reason: 'refresh_failed',
-        details: err.response?.data,
+        provider: provider.id,
       })
     })
 

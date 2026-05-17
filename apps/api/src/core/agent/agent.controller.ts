@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
+import { Throttle } from '@nestjs/throttler'
 import { ApiDoc, Public } from '@sociflow/common'
 import { AgentService } from './agent.service'
 import {
@@ -27,6 +28,9 @@ export class AgentController {
   }
 
   @Public()
+  // Chống brute-force 6-digit pair code (1M tổ hợp). 5/60s/IP cùng với code TTL 5 phút
+  // → expected work factor ~12k năm để vét cạn (mục tiêu defense, không phải bullet-proof).
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiDoc({
     summary: 'Extension claim pair code — issue agentToken (JWT long-lived)',
     body: PairClaimDtoSchema,

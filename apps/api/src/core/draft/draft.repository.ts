@@ -7,20 +7,33 @@ import type { Paginated, PaginationDto } from '@sociflow/common'
 export class DraftRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** @deprecated F-716 — dùng `getByIdAndWorkspaceId`. */
   async getByIdAndUserId(id: string, userId: string): Promise<Draft | null> {
     return this.prisma.draft.findFirst({ where: { id, userId, deletedAt: null } })
   }
 
+  async getByIdAndWorkspaceId(id: string, workspaceId: string): Promise<Draft | null> {
+    return this.prisma.draft.findFirst({ where: { id, workspaceId, deletedAt: null } })
+  }
+
+  /** @deprecated F-716 — dùng `listByWorkspaceWithPagination`. */
   async listByUserWithPagination(
     userId: string,
     pagination: PaginationDto,
     filter?: { tag?: string },
   ): Promise<Paginated<Draft>> {
-    const where: Prisma.DraftWhereInput = {
-      userId,
-      deletedAt: null,
-      ...(filter?.tag && { tags: { has: filter.tag } }),
-    }
+    return this.paginate({ userId, deletedAt: null, ...(filter?.tag && { tags: { has: filter.tag } }) }, pagination)
+  }
+
+  async listByWorkspaceWithPagination(
+    workspaceId: string,
+    pagination: PaginationDto,
+    filter?: { tag?: string },
+  ): Promise<Paginated<Draft>> {
+    return this.paginate({ workspaceId, deletedAt: null, ...(filter?.tag && { tags: { has: filter.tag } }) }, pagination)
+  }
+
+  private async paginate(where: Prisma.DraftWhereInput, pagination: PaginationDto): Promise<Paginated<Draft>> {
     const [list, total] = await Promise.all([
       this.prisma.draft.findMany({
         where,

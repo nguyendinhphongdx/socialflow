@@ -35,6 +35,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       throw new AppException(ResponseCode.AuthRequired)
     }
     this.context.set({ userId: user.id, sessionId: user.sessionId })
+    // F-716 — workspaceId từ token claim. Có thể bị WorkspaceContextGuard override
+    // sau qua `X-Workspace-Id` header (sau khi verify membership).
+    if (user.workspaceId) {
+      this.context.setWorkspaceId(user.workspaceId)
+    }
     return user
   }
 }

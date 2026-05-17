@@ -192,6 +192,35 @@ export class CommentRepository {
     })
   }
 
+  async listByIdsAndUserId(ids: string[], userId: string): Promise<Comment[]> {
+    if (ids.length === 0) return []
+    return this.prisma.comment.findMany({
+      where: { id: { in: ids }, userId, deletedAt: null },
+    })
+  }
+
+  async updateManyStatusByIdsAndUserId(
+    ids: string[],
+    userId: string,
+    status: CommentStatus,
+  ): Promise<number> {
+    if (ids.length === 0) return 0
+    const result = await this.prisma.comment.updateMany({
+      where: { id: { in: ids }, userId, deletedAt: null },
+      data: { status },
+    })
+    return result.count
+  }
+
+  async softDeleteManyByIdsAndUserId(ids: string[], userId: string): Promise<number> {
+    if (ids.length === 0) return 0
+    const result = await this.prisma.comment.updateMany({
+      where: { id: { in: ids }, userId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    })
+    return result.count
+  }
+
   /**
    * Lấy PublishRecord PUBLISHED gần đây có platformPostId cho 1 account
    * — dùng cho sync scheduler poll comments theo từng post.

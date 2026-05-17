@@ -1,10 +1,7 @@
-import { Test } from '@nestjs/testing'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AutoReplyRule } from '@prisma/client'
 import { ResponseCode } from '@sociflow/common'
-import { RequestContextService } from '@sociflow/auth'
 import { AutoReplyRuleService, type MatchableComment } from './auto-reply-rule.service'
-import { AutoReplyRuleRepository } from './auto-reply-rule.repository'
 
 function makeRule(overrides: Partial<AutoReplyRule> = {}): AutoReplyRule {
   const now = new Date()
@@ -52,7 +49,7 @@ describe('AutoReplyRuleService', () => {
   }
   let ctx: { requireUserId: ReturnType<typeof vi.fn> }
 
-  beforeEach(async () => {
+  beforeEach(() => {
     repo = {
       getByIdAndUserId: vi.fn(),
       create: vi.fn(),
@@ -61,14 +58,7 @@ describe('AutoReplyRuleService', () => {
       listByUserWithPagination: vi.fn(),
     }
     ctx = { requireUserId: vi.fn().mockReturnValue('user_1') }
-    const module = await Test.createTestingModule({
-      providers: [
-        AutoReplyRuleService,
-        { provide: AutoReplyRuleRepository, useValue: repo },
-        { provide: RequestContextService, useValue: ctx },
-      ],
-    }).compile()
-    service = module.get(AutoReplyRuleService)
+    service = new AutoReplyRuleService(repo as never, ctx as never)
   })
 
   describe('getByCurrentUserAndId', () => {

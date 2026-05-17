@@ -11,9 +11,17 @@ export type PublishRecordWithAccount = PublishRecord & {
 export class PublishRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** @deprecated F-716 — dùng `getByIdAndWorkspaceId`. */
   async getByIdAndUserId(id: string, userId: string): Promise<PublishRecordWithAccount | null> {
     return this.prisma.publishRecord.findFirst({
       where: { id, userId, deletedAt: null },
+      include: { account: { select: { platform: true, displayName: true } } },
+    })
+  }
+
+  async getByIdAndWorkspaceId(id: string, workspaceId: string): Promise<PublishRecordWithAccount | null> {
+    return this.prisma.publishRecord.findFirst({
+      where: { id, workspaceId, deletedAt: null },
       include: { account: { select: { platform: true, displayName: true } } },
     })
   }
@@ -22,12 +30,20 @@ export class PublishRepository {
     return this.prisma.publishRecord.findFirst({ where: { id, deletedAt: null } })
   }
 
+  /** @deprecated F-716 — dùng `getByWorkspaceIdAndIdempotencyKey`. */
   async getByIdempotencyKey(userId: string, key: string): Promise<PublishRecord | null> {
     return this.prisma.publishRecord.findFirst({
       where: { userId, idempotencyKey: key, deletedAt: null },
     })
   }
 
+  async getByWorkspaceIdAndIdempotencyKey(workspaceId: string, key: string): Promise<PublishRecord | null> {
+    return this.prisma.publishRecord.findFirst({
+      where: { workspaceId, idempotencyKey: key, deletedAt: null },
+    })
+  }
+
+  /** @deprecated F-716 — dùng `listByWorkspaceWithPagination`. */
   async listByUserWithPagination(
     userId: string,
     pagination: PaginationDto,
@@ -40,6 +56,25 @@ export class PublishRepository {
       ...(filter?.accountId && { accountId: filter.accountId }),
       ...(filter?.flowId && { flowId: filter.flowId }),
     }
+    return this.paginate(where, pagination)
+  }
+
+  async listByWorkspaceWithPagination(
+    workspaceId: string,
+    pagination: PaginationDto,
+    filter?: { status?: PublishStatus, accountId?: string, flowId?: string },
+  ): Promise<Paginated<PublishRecordWithAccount>> {
+    const where: Prisma.PublishRecordWhereInput = {
+      workspaceId,
+      deletedAt: null,
+      ...(filter?.status && { status: filter.status }),
+      ...(filter?.accountId && { accountId: filter.accountId }),
+      ...(filter?.flowId && { flowId: filter.flowId }),
+    }
+    return this.paginate(where, pagination)
+  }
+
+  private async paginate(where: Prisma.PublishRecordWhereInput, pagination: PaginationDto): Promise<Paginated<PublishRecordWithAccount>> {
     const [list, total] = await Promise.all([
       this.prisma.publishRecord.findMany({
         where,

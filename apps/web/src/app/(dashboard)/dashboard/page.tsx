@@ -72,6 +72,13 @@ export default function DashboardPage() {
           <p className="font-semibold">Analytics</p>
           <p className="text-sm text-muted-foreground">Followers + engagement timeline</p>
         </Link>
+        <Link
+          href="/dashboard/settings/billing"
+          className="rounded-lg border border-border p-4 hover:bg-accent"
+        >
+          <p className="font-semibold">Billing</p>
+          <p className="text-sm text-muted-foreground">Gói đăng ký + AI credits</p>
+        </Link>
       </div>
     </main>
   )

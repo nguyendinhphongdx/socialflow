@@ -15,8 +15,18 @@ export class SocialAccountRepository {
     return this.prisma.socialAccount.findFirst({ where: { id, userId, deletedAt: null } })
   }
 
+  /** F-716 — workspace-scoped lookup (preferred over getByIdAndUserId). */
+  async getByIdAndWorkspaceId(id: string, workspaceId: string): Promise<SocialAccount | null> {
+    return this.prisma.socialAccount.findFirst({ where: { id, workspaceId, deletedAt: null } })
+  }
+
   async getByUserPlatformUid(userId: string, platform: AccountPlatform, platformUid: string): Promise<SocialAccount | null> {
     return this.prisma.socialAccount.findFirst({ where: { userId, platform, platformUid, deletedAt: null } })
+  }
+
+  /** F-716 — lookup theo (workspace, platform, platformUid) cho upsert flow. */
+  async getByWorkspacePlatformUid(workspaceId: string, platform: AccountPlatform, platformUid: string): Promise<SocialAccount | null> {
+    return this.prisma.socialAccount.findFirst({ where: { workspaceId, platform, platformUid, deletedAt: null } })
   }
 
   /**
@@ -32,6 +42,10 @@ export class SocialAccountRepository {
     })
   }
 
+  /**
+   * @deprecated F-716 — dùng `listByWorkspaceWithPagination` thay vì.
+   * Giữ tạm cho backward compat (worker context legacy). Sẽ remove sau v2.1.
+   */
   async listByUserWithPagination(
     userId: string,
     pagination: PaginationDto,
@@ -43,6 +57,24 @@ export class SocialAccountRepository {
       ...(filter?.platform && { platform: filter.platform }),
       ...(filter?.status && { status: filter.status }),
     }
+    return this.paginate(where, pagination)
+  }
+
+  async listByWorkspaceWithPagination(
+    workspaceId: string,
+    pagination: PaginationDto,
+    filter?: { platform?: AccountPlatform, status?: AccountStatus },
+  ): Promise<Paginated<SocialAccount>> {
+    const where: Prisma.SocialAccountWhereInput = {
+      workspaceId,
+      deletedAt: null,
+      ...(filter?.platform && { platform: filter.platform }),
+      ...(filter?.status && { status: filter.status }),
+    }
+    return this.paginate(where, pagination)
+  }
+
+  private async paginate(where: Prisma.SocialAccountWhereInput, pagination: PaginationDto): Promise<Paginated<SocialAccount>> {
     const [list, total] = await Promise.all([
       this.prisma.socialAccount.findMany({
         where,
@@ -81,15 +113,16 @@ export class SocialAccountRepository {
 
   async upsertByPlatformUid(input: {
     userId: string
+    workspaceId: string
     platform: AccountPlatform
     platformUid: string
-    data: Omit<Prisma.SocialAccountCreateInput, 'user' | 'platform' | 'platformUid'>
+    data: Omit<Prisma.SocialAccountCreateInput, 'user' | 'workspace' | 'platform' | 'platformUid'>
   }): Promise<SocialAccount> {
     const existing = await this.getByUserPlatformUid(input.userId, input.platform, input.platformUid)
     if (existing) {
       return this.prisma.socialAccount.update({
         where: { id: existing.id },
-        data: { ...input.data, deletedAt: null },
+        data: { ...input.data, deletedAt: null, workspace: { connect: { id: input.workspaceId } } },
       })
     }
     return this.prisma.socialAccount.create({
@@ -98,6 +131,7 @@ export class SocialAccountRepository {
         platform: input.platform,
         platformUid: input.platformUid,
         user: { connect: { id: input.userId } },
+        workspace: { connect: { id: input.workspaceId } },
       },
     })
   }

@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { mediaService, MediaUploader, type MediaAsset } from '@/features/media'
+import { apiClient } from '@/lib/api/client'
+import { MediaUploader, type MediaAsset } from '@/features/media'
 
 interface MediaPickerModalProps {
   open: boolean
@@ -18,10 +19,10 @@ export function MediaPickerModal({ open, onClose, onSelect, multiple = true, acc
   const { data, refetch } = useQuery({
     queryKey: ['media', 'library', { accept }],
     queryFn: async () => {
-      // /media endpoint doesn't exist yet to filter — list all uploaded
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/media?pageSize=50&status=UPLOADED`, { credentials: 'include' })
-      const body = await res.json()
-      return body.data as { list: MediaAsset[] }
+      const res = await apiClient.get<{ data: { list: MediaAsset[] } }>('/media', {
+        params: { pageSize: 50, status: 'UPLOADED' },
+      })
+      return res.data.data
     },
     enabled: open && tab === 'library',
   })

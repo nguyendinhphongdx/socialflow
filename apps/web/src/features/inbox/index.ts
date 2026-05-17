@@ -2,12 +2,17 @@ export { InboxView } from './views/InboxView'
 export { CommentItem } from './components/CommentItem'
 export { ReplyDialog } from './components/ReplyDialog'
 export { InboxFilters } from './components/InboxFilters'
+export { InboxBulkActions } from './components/InboxBulkActions'
 export {
   useComments,
   useComment,
   useReplyComment,
   useMarkComment,
   useDeleteComment,
+  useBulkReply,
+  useBulkMarkReplied,
+  useBulkArchive,
+  useBulkDelete,
   inboxKeys,
 } from './hooks/useInbox'
 export { inboxService } from './services/inboxService'
@@ -19,4 +24,7 @@ export type {
   CommentListResponse,
   ReplyCommentInput,
   MarkCommentInput,
+  BulkActionInput,
+  BulkReplyInput,
+  BulkActionResult,
 } from './types'

@@ -1,8 +1,8 @@
 ---
 title: Sociflow — Progress tracker
 description: Trạng thái build theo roadmap. Update mỗi khi đẩy feature mới.
-last_updated: 2026-05-15
-revision: 4 — repo structure snapshot + priorities refreshed sau Phase 6
+last_updated: 2026-05-17
+revision: 7 — Wave 1-9 multi-agent execution: security/layering/tests, F-7xx complete (21/23), Phase 5+6 polish, F-716 multi-tenant landed
 ---
 
 # Sociflow Progress Tracker
@@ -19,11 +19,21 @@ revision: 4 — repo structure snapshot + priorities refreshed sau Phase 6
 | **2** | FB + IG + TT publish (multi-platform) | ✅ |
 | **3** | UI complete (editor, calendar, drafts) | ✅ |
 | **4** | AI content gen (caption + image) | ✅ |
-| **5** | Browser extension automation | ✅ scaffold (TT DOM stub) |
-| **6** | Engagement + Analytics | ✅ scaffold |
-| **7** | Polish + Launch | ⏳ |
+| **5** | Browser extension automation | ✅ scaffold (4 platforms content script, real DOM selectors pending browser inspect) |
+| **6** | Engagement + Analytics | ✅ (BrandMention persist + IG/TT insight real + inbox bulk + Web Push) |
+| **7** | Polish + Launch | ✅ (21/23 features; F-714 external + F-716 done) |
 
 > **Note**: ✅ = code đã viết & build path sạch. **Smoke test thực tế** với OAuth credentials & API keys riêng cần thực hiện mỗi phase.
+>
+> ⚠️ `✅ scaffold` (Phase 5) **khác** `✅` phase done. Xem [docs/definition-of-done.md](docs/definition-of-done.md) cho định nghĩa formal 3 mức done (code / feature / phase) và checklist gate trước khi tick ✅ thật.
+
+## Verification snapshot (revision 7)
+
+- **Type-check**: 13/13 packages green
+- **Tests**: 186 pass (151 api + 17 common + 18 auth)
+- **Build**: api + ai + web tất cả clean
+- **Code stats**: 194 file changed, +6610/-816 dòng so với scaffold ban đầu
+- **Migrations**: 17 prisma migrations (workspace, credits, notifications, api-key, brand-mentions, push-subscription, ...)
 
 ---
 
@@ -198,16 +208,36 @@ revision: 4 — repo structure snapshot + priorities refreshed sau Phase 6
 - ⏳ Bulk action inbox (multi-select)
 - ⏳ Push notification new comment
 
-### Phase 7 — Polish + Launch ⏳
+### Phase 7 — Polish + Launch ✅ (21/23 features per [ADR-0008](docs/decisions/0008-launch-readiness.md))
 
 | Task | Status |
 |---|---|
-| Billing — Stripe checkout + plan tiers | ⏳ |
-| Onboarding wizard (first account connect + first post) | ⏳ |
-| Landing page (marketing) | ⏳ |
-| Production deploy (VPS + nginx + certbot + Docker compose prod) | ⏳ |
-| Backup + monitoring (Sentry + Grafana) | ⏳ |
+| F-701 Production Docker Compose stack + Dockerfile.prod (api/ai/web) | ✅ |
+| F-702 Nginx + certbot + SSL renew | ✅ scaffold |
+| F-703 Sentry SDK (apps/api, apps/ai, apps/web) | ✅ |
+| F-704 Grafana + Prometheus + exporters | ✅ scaffold (cần wire `/metrics` cho apps/api ✅, apps/ai ⏳) |
+| F-705 Postgres backup script → R2 + 30d retention | ✅ scaffold |
+| F-706 Credits module (purchase/refund consumer + balance) | ✅ (14 tests) |
+| F-707 Pricing page + Stripe Checkout UI | ✅ |
+| F-708 Stripe webhook handler với signature verify | ✅ |
+| F-709 Notification module (email + queue consumer) | ✅ |
+| F-710 React Email templates (5 templates) | ✅ |
+| F-711 Credential lifecycle scheduler (emit `credential.expiring`) | ✅ |
+| F-712 Privacy + Terms + Data Deletion pages | ✅ |
+| F-713 Data deletion endpoint (auth) | ✅ |
+| F-714 App Review submission Meta + TikTok | ⏳ (runbook ready: [app-review-submission.md](docs/runbooks/app-review-submission.md)) |
+| F-715 API key module + ApiKeyAuthGuard + scopes decorator | ✅ (12 tests + migration) |
+| F-716 Multi-tenant workspace (Workspace + WorkspaceMember + role + JWT/header scope) | ✅ (24 tests + migration; 4 core models scoped; v2.1 mở rộng cho comment/auto-reply/brand-monitor/api-key) |
+| F-717 Redlock distributed lock cho publish bundle | ✅ (12 tests) |
+| F-718 Webhook DTO type-safe per-platform | ✅ (17 tests) |
+| F-719 Smoke runbooks Phase 1-6 | ✅ docs ready, execute pending credentials |
+| F-720 Landing page (marketing) | ✅ |
+| F-721 Onboarding wizard 3 step | ✅ |
+| F-722 Status page (`/status`) | ✅ |
+| F-723 Launch checklist | ✅ |
 | Public docs / help center | ⏳ |
+
+> **Note F-719**: Smoke runbooks Phase 1-6 đã có đủ trong `docs/runbooks/`. Cần execute thật khi OAuth credentials + Meta/TikTok app review sẵn. Mỗi runbook có pre-req checklist + steps + cleanup + known issues. Final gate go-live: [docs/runbooks/launch-checklist.md](docs/runbooks/launch-checklist.md).
 
 ---
 

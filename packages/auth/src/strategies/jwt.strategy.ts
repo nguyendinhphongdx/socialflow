@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { PassportStrategy } from '@nestjs/passport'
 import { Strategy } from 'passport-jwt'
-import type { AuthUser } from '@sociflow/common'
+import { AppException, ResponseCode, type AuthUser } from '@sociflow/common'
 import { cookieOrBearerExtractor } from '../extractors'
 import type { JwtPayload } from '../jwt-payload.type'
 
@@ -23,11 +23,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtPayload): Promise<AuthUser> {
+    // Defense-in-depth: agent tokens được ký bằng `jwtAgentSecret` riêng, lý thuyết không
+    // verify được qua secret này. Nhưng nếu lỡ rotate secret hoặc lẫn key, reject bất kỳ
+    // token nào claim `type` khác user (undefined).
+    if (payload.type !== undefined) {
+      throw new AppException(ResponseCode.AuthRequired)
+    }
     return {
       id: payload.sub,
       email: payload.email,
       role: payload.role,
       sessionId: payload.sessionId,
+      workspaceId: payload.workspaceId,
     }
   }
 }

@@ -110,16 +110,67 @@ Tương tác tự động + dashboard.
 | F-605 | Per-post insights (FB Graph, YT Analytics, TT Analytics) | apps/api/analytics | Drill-down per post |
 | F-606 | Revenue tracking (manual entry + brand deal log) | apps/api/revenue | User log brand deal, affiliate link tracker |
 
-## Phase 7 — Polish + Launch (cuối tháng 6 / đầu tháng 7)
+## Phase 7 — Polish + Launch (8 tuần — xem [ADR-0008](decisions/0008-launch-readiness.md))
+
+Roadmap deterministic 8 tuần. Mỗi feature có DoD demoable.
+
+### Infrastructure foundation (Tuần 1)
 
 | ID | Feature | Module | AC |
 |---|---|---|---|
-| F-701 | i18n VN + EN | apps/web | Switch ngôn ngữ, mọi text qua `t()` |
-| F-702 | Pricing page + billing (Stripe / VNPay) | apps/web + apps/api | User subscribe plan |
-| F-703 | Email notification (publish success/fail, account expire) | apps/api | Resend hoặc SES |
-| F-704 | Error monitoring (Sentry) | infra | Frontend + backend error tracked |
-| F-705 | Production deploy (VPS + nginx + SSL) | infra | aitoearn.vn hoặc sociflow.io chạy |
-| F-706 | Landing page + onboarding | apps/web | Welcome flow guide user qua 3 step đầu |
+| F-701 | Production Docker stack (api/ai/web/postgres/redis/nginx) | infra | `docker compose -f docker-compose.prod.yml up -d` chạy trên VPS |
+| F-702 | HTTPS + auto SSL renew (nginx + certbot) | infra | `https://sociflow.io` valid cert, cron renew |
+| F-703 | Error monitoring (Sentry) — FE + BE + AI service | infra | Trigger test error → capture trong Sentry dashboard |
+| F-704 | Observability (Grafana + Prometheus) — queue depth, p95 latency, error rate | infra | Dashboard live, 3 alert rules configured |
+| F-705 | Postgres backup daily → R2 + retention 30 ngày | infra | Backup script chạy cron, test restore thành công |
+
+### Monetization (Tuần 2)
+
+| ID | Feature | Module | AC |
+|---|---|---|---|
+| F-706 | Credits module (purchase/refund consumer + balance API) | apps/api/credits | `POST /credits/purchase` → Stripe Checkout → webhook grant credit |
+| F-707 | Pricing page + plan tier (FREE/PRO/BUSINESS/ENTERPRISE) | apps/web | User subscribe Stripe Checkout, plan reflect trong UI |
+| F-708 | Stripe webhook handler với signature verify | apps/api/webhook | Webhook idempotent, audit qua `WebhookEvent` table |
+
+### Notification + lifecycle (Tuần 3-4)
+
+| ID | Feature | Module | AC |
+|---|---|---|---|
+| F-709 | Notification module (email transactional + queue consumer) | apps/api/notification | Verify email + reset password + publish-failed alert hoạt động |
+| F-710 | React Email templates (verify-email, reset-password, publish-failed, account-expired, credit-low) | packages/email | 5 template render với data prop, test SMTP |
+| F-711 | Credential lifecycle state machine (ACTIVE → EXPIRING → EXPIRED → DISCONNECTED) | apps/api/social-account | Token sắp hết hạn → email alert + UI banner |
+
+### App Review (Tuần 5 — parallel)
+
+| ID | Feature | Module | AC |
+|---|---|---|---|
+| F-712 | Privacy policy + Terms of service page | apps/web | `/legal/privacy`, `/legal/terms` render full content |
+| F-713 | Data Deletion endpoint (Meta requirement) | apps/api/auth | `POST /auth/data-deletion` triggers async user data purge |
+| F-714 | Meta + TikTok App Review submission | infra/legal | Submit pending hoặc approved |
+
+### API + multi-tenant (Tuần 6)
+
+| ID | Feature | Module | AC |
+|---|---|---|---|
+| F-715 | API key module (CRUD + sha256 hash + 8-char prefix display) | apps/api/api-key | User tạo key, dùng `X-API-Key` header gọi `/publish` thành công |
+| F-716 | Account group multi-tenant isolation (role OWNER/ADMIN/EDITOR/VIEWER) | apps/api + apps/web | Agency switch group, mỗi group có data isolated, role check |
+
+### Concurrency + smoke (Tuần 7)
+
+| ID | Feature | Module | AC |
+|---|---|---|---|
+| F-717 | Redlock distributed lock cho publish bundle | packages/common + apps/api/publish | Concurrent createBundle với cùng `idempotencyKey` chỉ tạo 1 bundle |
+| F-718 | Webhook DTO type-safe per-platform (FB/IG/TT) | apps/api/webhook | Webhook payload validate qua zod schema per-source |
+| F-719 | Smoke test runbooks Phase 2-6 đầy đủ | docs/runbooks | 5 runbook mới, mỗi cái có step-by-step với credentials thật |
+
+### Onboarding + launch (Tuần 8)
+
+| ID | Feature | Module | AC |
+|---|---|---|---|
+| F-720 | Landing page marketing (hero + features + pricing + testimonials) | apps/web | `/` render full, SEO metadata + OG image |
+| F-721 | Onboarding wizard 3 step (connect account → compose → analytics) | apps/web | First-login user qua wizard, skip-able |
+| F-722 | Status page `/status` (uptime + incident history) | apps/web hoặc external | Public status page reachable |
+| F-723 | Launch checklist (5 runbook + backup restore + Sentry alert + Stripe live + App Review approved + load test) | infra/QA | Tất cả ✅ trong PR description |
 
 ## Future (V2+)
 

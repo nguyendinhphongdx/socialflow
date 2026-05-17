@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common'
-import { AppException, ResponseCode } from '@sociflow/common'
+import { Injectable } from '@nestjs/common'
 import { AiClientService, type GenerateCaptionInput, type GenerateCaptionOutput } from '@sociflow/internal-client'
-import { UserService } from '../user/user.service'
+import { RequestContextService } from '@sociflow/auth'
+import { CreditsService } from '../credits/credits.service'
 
 const CAPTION_CREDIT_COST = 1
 
@@ -11,32 +11,31 @@ export interface GenerateCaptionResult extends GenerateCaptionOutput {
 
 @Injectable()
 export class AiService {
-  private readonly logger = new Logger(AiService.name)
-
   constructor(
     private readonly aiClient: AiClientService,
-    private readonly userService: UserService,
+    private readonly credits: CreditsService,
+    private readonly ctx: RequestContextService,
   ) {}
 
   async generateCaption(input: GenerateCaptionInput): Promise<GenerateCaptionResult> {
-    // Trừ credit trước để chống race (decrement atomic).
-    // Nếu AI fail sau đó, log warning — credit đã bị mất (acceptable tradeoff đơn giản).
-    await this.userService.assertAiCredits(CAPTION_CREDIT_COST)
+    const userId = this.ctx.requireUserId()
 
-    let result: GenerateCaptionOutput
-    try {
-      result = await this.aiClient.generateCaption(input)
-    }
-    catch (err) {
-      this.logger.error('AI caption generation failed', err as Error)
-      throw new AppException(ResponseCode.AiGenerationFailed, { topic: input.topic })
-    }
+    // Pre-flight check — chống race. AiClientService tự throw AppException khi
+    // envelope code != 0 (xem internal-client.ts) — KHÔNG bao try-catch ở đây.
+    await this.credits.assertBalance(userId, CAPTION_CREDIT_COST)
 
-    const updated = await this.userService.decrementAiCredits(CAPTION_CREDIT_COST)
+    const result = await this.aiClient.generateCaption(input)
+
+    // Atomic decrement + insert CreditTransaction (ledger) — auto-emit credit.low
+    const { user } = await this.credits.consume({
+      userId,
+      amount: CAPTION_CREDIT_COST,
+      reason: 'ai_caption',
+    })
 
     return {
       ...result,
-      creditsRemaining: updated.aiCredits,
+      creditsRemaining: user.aiCredits,
     }
   }
 }

@@ -15,6 +15,33 @@ export const apiClient = axios.create({
   withCredentials: true,
 })
 
+const WORKSPACE_STORAGE_KEY = 'sf_current_workspace_id'
+
+export function getCurrentWorkspaceId(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
+}
+
+export function setCurrentWorkspaceId(workspaceId: string | null): void {
+  if (typeof window === 'undefined') return
+  if (workspaceId) {
+    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId)
+  }
+  else {
+    window.localStorage.removeItem(WORKSPACE_STORAGE_KEY)
+  }
+}
+
+// F-716 multi-tenant — inject X-Workspace-Id header. Backend verify membership
+// + override JWT workspaceId. Header rỗng = dùng workspace mặc định trong JWT.
+apiClient.interceptors.request.use((config) => {
+  const wsId = getCurrentWorkspaceId()
+  if (wsId && config.headers) {
+    config.headers['X-Workspace-Id'] = wsId
+  }
+  return config
+})
+
 let refreshInFlight: Promise<void> | null = null
 let refreshFailed = false
 

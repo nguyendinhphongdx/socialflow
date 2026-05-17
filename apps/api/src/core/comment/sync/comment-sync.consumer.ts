@@ -4,7 +4,6 @@ import type { Job } from 'bullmq'
 import axios from 'axios'
 import { RetryableError } from '@sociflow/common'
 import type { AccountPlatform, SocialAccount } from '@prisma/client'
-import { SocialAccountRepository } from '../../social-account/social-account.repository'
 import { SocialAccountService } from '../../social-account/social-account.service'
 import { CommentRepository, type IngestCommentInput } from '../comment.repository'
 import { CommentService } from '../comment.service'
@@ -33,7 +32,6 @@ export class CommentSyncConsumer extends WorkerHost {
   private readonly logger = new Logger(CommentSyncConsumer.name)
 
   constructor(
-    private readonly accountRepo: SocialAccountRepository,
     private readonly accountService: SocialAccountService,
     private readonly commentRepo: CommentRepository,
     private readonly commentService: CommentService,
@@ -43,7 +41,7 @@ export class CommentSyncConsumer extends WorkerHost {
 
   async process(job: Job<CommentSyncJob>): Promise<void> {
     const { accountId, postLimit } = job.data
-    const account = await this.accountRepo.getById(accountId)
+    const account = await this.accountService.getById(accountId)
     if (!account || account.status !== 'ACTIVE') {
       this.logger.warn(`Account ${accountId} not found or inactive — skip sync`)
       return

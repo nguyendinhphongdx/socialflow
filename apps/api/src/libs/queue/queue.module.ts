@@ -10,6 +10,10 @@ export const QUEUE_NAMES = {
   AUTO_REPLY: 'auto-reply',
   INSIGHT_SNAPSHOT: 'insight-snapshot',
   COMMENT_SYNC: 'comment-sync',
+  CREDITS_PURCHASE: 'credits-purchase',
+  CREDITS_REFUND: 'credits-refund',
+  NOTIFICATION: 'notification',
+  BRAND_SENTIMENT: 'brand-sentiment',
 } as const
 
 @Global()
@@ -40,6 +44,10 @@ export const QUEUE_NAMES = {
       { name: QUEUE_NAMES.AUTO_REPLY },
       { name: QUEUE_NAMES.INSIGHT_SNAPSHOT },
       { name: QUEUE_NAMES.COMMENT_SYNC },
+      { name: QUEUE_NAMES.CREDITS_PURCHASE },
+      { name: QUEUE_NAMES.CREDITS_REFUND },
+      { name: QUEUE_NAMES.NOTIFICATION },
+      { name: QUEUE_NAMES.BRAND_SENTIMENT },
     ),
   ],
   exports: [BullModule],

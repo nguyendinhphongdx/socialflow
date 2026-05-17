@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import type { AxiosInstance } from 'axios'
+import { AppException, ResponseCode } from '@sociflow/common'
 import { RequestContextService } from '@sociflow/auth'
 import { createInternalClient } from './internal-client'
 
@@ -47,6 +48,20 @@ export interface GenerateImageOutput {
   model: string
 }
 
+export type SentimentLabel = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL'
+
+export interface ClassifySentimentInput {
+  text: string
+  languageCode?: string
+  providerId?: 'openai' | 'anthropic'
+}
+
+export interface ClassifySentimentOutput {
+  sentiment: SentimentLabel
+  score: number
+  model: string
+}
+
 /**
  * Typed client cho apps/ai endpoints. apps/api inject service này.
  *
@@ -80,21 +95,52 @@ export class AiClientService {
   }
 
   async generateCaption(input: GenerateCaptionInput): Promise<GenerateCaptionOutput> {
-    const response = await this.http.post<{ data: GenerateCaptionOutput }>(
-      '/internal/ai/caption',
-      input,
-      { headers: this.traceHeaders() },
-    )
-    return response.data.data
+    try {
+      const response = await this.http.post<{ data: GenerateCaptionOutput }>(
+        '/internal/ai/caption',
+        input,
+        { headers: this.traceHeaders() },
+      )
+      return response.data.data
+    }
+    catch (err) {
+      // Envelope error (AppException) đã map qua internal-client interceptor — rethrow.
+      if (err instanceof AppException) throw err
+      // Network/5xx/timeout từ apps/ai → map sang AiGenerationFailed cho UX rõ ràng.
+      throw new AppException(ResponseCode.AiGenerationFailed, { topic: input.topic })
+    }
   }
 
   async generateImage(input: GenerateImageInput): Promise<GenerateImageOutput> {
-    const response = await this.http.post<{ data: GenerateImageOutput }>(
-      '/internal/ai/image',
-      input,
-      { headers: this.traceHeaders() },
-    )
-    return response.data.data
+    try {
+      const response = await this.http.post<{ data: GenerateImageOutput }>(
+        '/internal/ai/image',
+        input,
+        { headers: this.traceHeaders() },
+      )
+      return response.data.data
+    }
+    catch (err) {
+      if (err instanceof AppException) throw err
+      throw new AppException(ResponseCode.AiGenerationFailed, { prompt: input.prompt })
+    }
+  }
+
+  async classifySentiment(input: ClassifySentimentInput): Promise<ClassifySentimentOutput> {
+    try {
+      const response = await this.http.post<{ data: ClassifySentimentOutput }>(
+        '/internal/ai/sentiment',
+        input,
+        { headers: this.traceHeaders() },
+      )
+      return response.data.data
+    }
+    catch (err) {
+      if (err instanceof AppException) throw err
+      throw new AppException(ResponseCode.BrandSentimentClassifyFailed, {
+        textSample: input.text.slice(0, 80),
+      })
+    }
   }
 
   private traceHeaders(): Record<string, string> {

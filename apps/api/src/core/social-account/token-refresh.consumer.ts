@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common'
 import { Processor, WorkerHost } from '@nestjs/bullmq'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import type { Job } from 'bullmq'
 import { AppException, ResponseCode } from '@sociflow/common'
 import { SocialAccountRepository } from './social-account.repository'
@@ -20,6 +21,7 @@ export class TokenRefreshConsumer extends WorkerHost {
     private readonly repo: SocialAccountRepository,
     private readonly accountService: SocialAccountService,
     private readonly youtube: YouTubeConnectService,
+    private readonly events: EventEmitter2,
   ) {
     super()
   }
@@ -56,7 +58,13 @@ export class TokenRefreshConsumer extends WorkerHost {
     catch (err) {
       if (err instanceof AppException && err.code === ResponseCode.AccountTokenExpired) {
         await this.accountService.markTokenExpired(account.id)
-        this.logger.warn(`Refresh failed for account ${account.id} — marked TOKEN_EXPIRED`)
+        this.events.emit('credential.expiring', {
+          userId: account.userId,
+          accountId: account.id,
+          platform: account.platform,
+          accountDisplayName: account.displayName,
+        })
+        this.logger.warn(`Refresh failed for account ${account.id} — marked TOKEN_EXPIRED + alert sent`)
         return
       }
       throw err   // re-throw để BullMQ retry

@@ -1,8 +1,9 @@
 import 'reflect-metadata'
 import { json } from 'express'
+import { Logger as NestLogger } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
-import { IoAdapter } from '@nestjs/platform-socket.io'
 import { Logger } from 'nestjs-pino'
+import { SociflowSocketIoAdapter } from './libs/ws/socket-io.adapter'
 import cookieParser from 'cookie-parser'
 import helmet from 'helmet'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
@@ -12,9 +13,25 @@ import {
   ZodValidationPipe,
 } from '@sociflow/common'
 import { AppModule } from './app.module'
-import { APP_CONFIG, type AppConfig } from './config'
+import { APP_CONFIG, type AppConfig, loadConfig } from './config'
+import { initSentry } from './common/sentry/sentry.init'
 
 async function bootstrap() {
+  // Init Sentry TRƯỚC khi NestFactory.create — đảm bảo capture được bootstrap error.
+  // Reload config standalone vì AppConfigModule chưa instantiate ở thời điểm này.
+  const bootConfig = loadConfig()
+  const sentryEnabled = initSentry({
+    dsn: bootConfig.sentry.dsn,
+    environment: bootConfig.sentry.environment,
+    release: bootConfig.sentry.release,
+    tracesSampleRate: bootConfig.sentry.tracesSampleRate,
+    profilesSampleRate: bootConfig.sentry.profilesSampleRate,
+    serverName: 'sociflow-api',
+  })
+  if (sentryEnabled) {
+    new NestLogger('Sentry').log(`[api] Sentry initialized (env=${bootConfig.sentry.environment})`)
+  }
+
   const app = await NestFactory.create(AppModule, { bufferLogs: true })
 
   app.useLogger(app.get(Logger))
@@ -32,7 +49,7 @@ async function bootstrap() {
   app.use(json({
     verify: (req, _res, buf) => {
       if (req.url?.startsWith('/api/v1/webhook/')) {
-        (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf)
+        (req as unknown as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf)
       }
     },
   }))
@@ -48,7 +65,8 @@ async function bootstrap() {
   })
 
   // Socket.IO adapter cho WS Gateway (apps/api/src/core/agent/ws/agent.gateway.ts)
-  app.useWebSocketAdapter(new IoAdapter(app))
+  // Custom adapter đọc CORS whitelist từ config (xem libs/ws/socket-io.adapter.ts).
+  app.useWebSocketAdapter(new SociflowSocketIoAdapter(app))
 
   app.setGlobalPrefix('api/v1')
   app.useGlobalPipes(new ZodValidationPipe())
@@ -67,10 +85,10 @@ async function bootstrap() {
   }
 
   await app.listen(config.app.port)
-  console.warn(`[api] listening on http://localhost:${config.app.port}/api/v1`)
+  new NestLogger('Bootstrap').log(`[api] listening on http://localhost:${config.app.port}/api/v1`)
 }
 
 bootstrap().catch((err) => {
-  console.error('[api] bootstrap failed:', err)
+  new NestLogger('Bootstrap').error('[api] bootstrap failed', err as Error)
   process.exit(1)
 })

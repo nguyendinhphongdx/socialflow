@@ -1,5 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common'
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
+import { Throttle } from '@nestjs/throttler'
 import { ApiDoc } from '@sociflow/common'
 import { AiService } from './ai.service'
 import { GenerateCaptionDto, GenerateCaptionDtoSchema } from './ai.dto'
@@ -17,6 +18,7 @@ export class AiController {
     body: GenerateCaptionDtoSchema,
     response: GenerateCaptionVo,
   })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('/caption')
   async caption(@Body() dto: GenerateCaptionDto) {
     const result = await this.ai.generateCaption(dto)

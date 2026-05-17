@@ -15,14 +15,12 @@
     "migrate:deploy": "prisma migrate deploy",
     "migrate:reset": "prisma migrate reset --skip-seed",
     "studio": "prisma studio",
-    "seed": "tsx seed/index.ts",
     "lint": "eslint . --max-warnings 0",
     "type-check": "tsc --noEmit",
     "clean": "rimraf dist .turbo"
   },
   "prisma": {
-    "schema": "schema.prisma",
-    "seed": "tsx seed/index.ts"
+    "schema": "schema.prisma"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

@@ -14,9 +14,11 @@ import {
   PublishCommandSchema,
   CancelTaskCommandSchema,
   PingCommandSchema,
+  SelectorsUpdateSchema,
 } from '@sociflow/ws-protocol'
 import type { AgentCredentials } from './storage'
-import { dispatchPublish, cancelTask, getActiveTabsCount } from './task-dispatcher'
+import { dispatchPublish, cancelTask, getActiveTabsCount, setRedirectNotifier } from './task-dispatcher'
+import { applySelectorsUpdate } from './selector-cache'
 
 const CAPABILITIES = ['tiktok', 'facebook', 'instagram', 'youtube']
 const RECONNECT_DELAYS_MS = [5_000, 10_000, 30_000, 60_000, 300_000]
@@ -85,6 +87,15 @@ function bindServerMessages(s: Socket) {
       return
     }
     await cancelTask(parsed.data.taskId)
+  })
+
+  s.on('s2a:selectors-update', async (raw: unknown) => {
+    const parsed = SelectorsUpdateSchema.safeParse(raw)
+    if (!parsed.success) {
+      console.warn('[sociflow-agent] invalid s2a:selectors-update payload', parsed.error.issues)
+      return
+    }
+    await applySelectorsUpdate(parsed.data)
   })
 }
 
@@ -177,12 +188,28 @@ export function sendToServer(message: AgentToServerMessage): void {
   socket.emit(message.type, message)
 }
 
-export function sendHeartbeat(): void {
+export async function sendHeartbeat(): Promise<void> {
+  const activeTabsCount = await getActiveTabsCount()
   sendToServer({
     type: 'a2s:heartbeat',
     ts: Date.now(),
-    activeTabsCount: getActiveTabsCount(),
+    activeTabsCount,
   })
+}
+
+// Wire redirect notifier — gửi a2s:status với stage 'redirected' cho server.
+setRedirectNotifier((taskId, url) => {
+  sendToServer({
+    type: 'a2s:status',
+    taskId,
+    stage: `redirected:${safeHostFromUrl(url)}`,
+    progress: 0,
+  })
+})
+
+function safeHostFromUrl(url: string): string {
+  try { return new URL(url).host }
+  catch { return 'unknown' }
 }
 
 export function isConnected(): boolean {

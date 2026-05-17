@@ -4,7 +4,6 @@ import type { AccountPlatform, Comment } from '@prisma/client'
 import { AppException, ResponseCode, type PaginationDto } from '@sociflow/common'
 import { RequestContextService } from '@sociflow/auth'
 import { SocialAccountService } from '../social-account/social-account.service'
-import { SocialAccountRepository } from '../social-account/social-account.repository'
 import type { CommentReplyPort } from '../auto-reply/auto-reply.constants'
 import {
   CommentRepository,
@@ -32,7 +31,6 @@ export class CommentService implements CommentReplyPort {
 
   constructor(
     private readonly repo: CommentRepository,
-    private readonly accountRepo: SocialAccountRepository,
     private readonly accountService: SocialAccountService,
     private readonly providers: CommentProviderRegistry,
     private readonly ctx: RequestContextService,
@@ -143,6 +141,92 @@ export class CommentService implements CommentReplyPort {
     await this.repo.softDeleteById(comment.id)
   }
 
+  // ============================================================
+  // Bulk actions — F-708 polish.
+  //
+  // Mỗi method permission filter qua repository's `*ByUserId` query
+  // condition (no leak nếu commentId thuộc user khác — silent skip).
+  // ============================================================
+
+  async bulkReply(
+    commentIds: string[],
+    replyText: string,
+  ): Promise<{ total: number, failures: Array<{ commentId: string, reason: string }> }> {
+    const userId = this.ctx.requireUserId()
+    const comments = await this.repo.listByIdsAndUserId(commentIds, userId)
+    const found = new Map(comments.map(c => [c.id, c]))
+
+    const failures: Array<{ commentId: string, reason: string }> = []
+
+    // Chunk Promise.allSettled — 1 fail không stop khác. Concurrency 5 để
+    // tránh quá tải platform API + Prisma pool.
+    const CONCURRENCY = 5
+    for (let i = 0; i < commentIds.length; i += CONCURRENCY) {
+      const chunk = commentIds.slice(i, i + CONCURRENCY)
+      const results = await Promise.allSettled(
+        chunk.map(async (id) => {
+          const comment = found.get(id)
+          if (!comment) {
+            throw new AppException(ResponseCode.CommentNotFound, { commentId: id })
+          }
+          await this.doReply(comment, replyText, userId)
+          return id
+        }),
+      )
+      for (let j = 0; j < results.length; j += 1) {
+        const r = results[j]
+        if (r.status === 'rejected') {
+          const reason = r.reason instanceof Error ? r.reason.message : 'unknown_error'
+          failures.push({ commentId: chunk[j], reason })
+        }
+      }
+    }
+    return { total: commentIds.length, failures }
+  }
+
+  async bulkMarkReplied(
+    commentIds: string[],
+  ): Promise<{ total: number, failures: Array<{ commentId: string, reason: string }> }> {
+    const userId = this.ctx.requireUserId()
+    const count = await this.repo.updateManyStatusByIdsAndUserId(commentIds, userId, 'REPLIED')
+    const failures = commentIds.length - count
+    return {
+      total: commentIds.length,
+      failures: failures > 0
+        ? [{ commentId: 'unknown', reason: `${failures}_not_found_or_not_owned` }]
+        : [],
+    }
+  }
+
+  async bulkArchive(
+    commentIds: string[],
+  ): Promise<{ total: number, failures: Array<{ commentId: string, reason: string }> }> {
+    const userId = this.ctx.requireUserId()
+    // "Archive" = mark IGNORED (giữ trong DB nhưng inbox UI lọc out)
+    const count = await this.repo.updateManyStatusByIdsAndUserId(commentIds, userId, 'IGNORED')
+    const failures = commentIds.length - count
+    return {
+      total: commentIds.length,
+      failures: failures > 0
+        ? [{ commentId: 'unknown', reason: `${failures}_not_found_or_not_owned` }]
+        : [],
+    }
+  }
+
+  async bulkSoftDelete(
+    commentIds: string[],
+  ): Promise<{ total: number, failures: Array<{ commentId: string, reason: string }> }> {
+    const userId = this.ctx.requireUserId()
+    const count = await this.repo.softDeleteManyByIdsAndUserId(commentIds, userId)
+    const failures = commentIds.length - count
+    return {
+      total: commentIds.length,
+      failures: failures > 0
+        ? [{ commentId: 'unknown', reason: `${failures}_not_found_or_not_owned` }]
+        : [],
+    }
+  }
+
   // ---- helpers ----
 
   private async doReply(
@@ -157,7 +241,7 @@ export class CommentService implements CommentReplyPort {
         status: comment.status,
       })
     }
-    const account = await this.accountRepo.getById(comment.accountId)
+    const account = await this.accountService.getById(comment.accountId)
     if (!account || account.userId !== userId) {
       throw new AppException(ResponseCode.AccountNotFound, { accountId: comment.accountId })
     }

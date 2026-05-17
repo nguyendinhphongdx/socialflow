@@ -2,8 +2,8 @@
 title: Sociflow Docs Index
 description: Master index của toàn bộ documentation. Đọc file này TRƯỚC khi tìm docs khác.
 audience: [ai-agent, developer]
-last_updated: 2026-05-15
-revision: 2 — ADR 0005-0007 + boilerplate-derived rules/skills added
+last_updated: 2026-05-17
+revision: 4 — runbooks Phase 2-6 + launch-checklist added
 ---
 
 # Sociflow Documentation Index
@@ -33,6 +33,7 @@ sociflow/
 │   ├── 10-deployment.md            # Docker, R2, VPS, monitoring
 │   ├── 11-roadmap.md               # 7.5 month plan
 │   ├── 12-glossary.md              # Domain terms
+│   ├── definition-of-done.md       # 3 mức done (code / feature / phase) — gate trước khi tick ✅
 │   ├── platforms/                  # Platform-specific specs
 │   │   ├── youtube.md
 │   │   ├── facebook.md
@@ -41,6 +42,15 @@ sociflow/
 │   └── decisions/                  # ADRs (architecture decision records)
 │       ├── _template.md
 │       └── 0001-*.md
+│   └── runbooks/                  # Operational runbooks + smoke tests
+│       ├── smoke-test-phase1.md   # YT publish E2E
+│       ├── smoke-test-phase2.md   # FB + IG publish
+│       ├── smoke-test-phase3.md   # Calendar + draft + scheduled
+│       ├── smoke-test-phase4.md   # AI gen + credits
+│       ├── smoke-test-phase5.md   # Extension automation
+│       ├── smoke-test-phase6.md   # Engagement + analytics
+│       ├── app-review-submission.md  # Meta + TikTok review
+│       └── launch-checklist.md    # Go-live gate
 └── .claude/
     ├── settings.json
     ├── rules/                      # Hard coding rules
@@ -109,6 +119,9 @@ sociflow/
 ### "Tôi cần lấy userId trong service"
 → [decisions/0007-cls-context.md](decisions/0007-cls-context.md) → [.claude/rules/project-standards.md](../.claude/rules/project-standards.md) "Request context (CLS)"
 
+### "Tôi cần biết roadmap launch (8 tuần)"
+→ [decisions/0008-launch-readiness.md](decisions/0008-launch-readiness.md) → [01-features.md](01-features.md#phase-7--polish--launch-8-tuần--xem-adr-0008) (F-701..F-723)
+
 ### "Tôi cần viết CLI command"
 → [.claude/rules/cli-commands.md](../.claude/rules/cli-commands.md)
 
@@ -118,11 +131,24 @@ sociflow/
 ### "Tôi cần biết kế hoạch phát triển"
 → [11-roadmap.md](11-roadmap.md)
 
+### "Khi nào feature được coi là done?"
+→ [definition-of-done.md](definition-of-done.md) → [01-features.md](01-features.md) (AC) → [11-roadmap.md](11-roadmap.md) (DoD per task)
+
 ### "Có thuật ngữ tôi chưa biết"
 → [12-glossary.md](12-glossary.md)
 
 ### "Tôi muốn đưa quyết định kiến trúc"
 → Đọc [decisions/](decisions/) trước, tạo ADR mới theo [decisions/_template.md](decisions/_template.md)
+
+### "Tôi cần smoke test 1 phase / chuẩn bị go-live"
+→ [runbooks/smoke-test-phase1.md](runbooks/smoke-test-phase1.md) (YT)
+→ [runbooks/smoke-test-phase2.md](runbooks/smoke-test-phase2.md) (FB+IG)
+→ [runbooks/smoke-test-phase3.md](runbooks/smoke-test-phase3.md) (Calendar+Draft)
+→ [runbooks/smoke-test-phase4.md](runbooks/smoke-test-phase4.md) (AI gen)
+→ [runbooks/smoke-test-phase5.md](runbooks/smoke-test-phase5.md) (Extension)
+→ [runbooks/smoke-test-phase6.md](runbooks/smoke-test-phase6.md) (Engagement+Analytics)
+→ [runbooks/launch-checklist.md](runbooks/launch-checklist.md) (Final gate)
+→ [runbooks/app-review-submission.md](runbooks/app-review-submission.md) (Meta + TikTok review)
 
 ## Lookup theo file pattern
 
@@ -134,6 +160,7 @@ sociflow/
 | `.claude/rules/*.md` | Hard coding rule, đọc trước khi code | `.claude/rules/` |
 | `.claude/agents/*.md` | Subagent definition cho Claude Code | `.claude/agents/` |
 | `.claude/skills/*/SKILL.md` | Workflow skill có thể invoke qua `/skill-name` | `.claude/skills/` |
+| `runbooks/*.md` | Operational runbooks: smoke test phase + launch checklist + App Review | `docs/runbooks/` |
 
 ## Keywords → docs map
 
@@ -155,6 +182,9 @@ Dùng để grep nhanh khi MCP server scan filesystem:
 | `repository`, `service`, `controller`, `module` | [.claude/rules/project-standards.md](../.claude/rules/project-standards.md), [08-api-conventions.md](08-api-conventions.md) |
 | `commit`, `branch`, `pr`, `merge` | [.claude/rules/git-workflow.md](../.claude/rules/git-workflow.md) |
 | `test`, `vitest`, `playwright`, `tdd` | [.claude/rules/testing.md](../.claude/rules/testing.md) |
+| `done`, `dod`, `acceptance criteria`, `ac`, `ship checklist` | [definition-of-done.md](definition-of-done.md) |
+| `smoke test`, `runbook`, `go-live`, `launch checklist` | [runbooks/launch-checklist.md](runbooks/launch-checklist.md), [runbooks/smoke-test-phase1.md](runbooks/smoke-test-phase1.md)..6 |
+| `app review`, `meta review`, `tiktok review` | [runbooks/app-review-submission.md](runbooks/app-review-submission.md) |
 
 ## Maintenance
 

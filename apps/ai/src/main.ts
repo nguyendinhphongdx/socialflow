@@ -1,4 +1,5 @@
 import 'reflect-metadata'
+import { Logger as NestLogger } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { Logger } from 'nestjs-pino'
 import helmet from 'helmet'
@@ -9,11 +10,27 @@ import {
   ZodValidationPipe,
 } from '@sociflow/common'
 import { AppModule } from './app.module'
+import { loadConfig } from './config'
+import { initSentry } from './common/sentry/sentry.init'
 
 const PORT = Number(process.env.AI_PORT ?? 3001)
 const ENV = process.env.NODE_ENV ?? 'development'
 
 async function bootstrap() {
+  // Sentry init TRƯỚC NestFactory — capture bootstrap error.
+  const bootConfig = loadConfig()
+  const sentryEnabled = initSentry({
+    dsn: bootConfig.sentry.dsn,
+    environment: bootConfig.sentry.environment,
+    release: bootConfig.sentry.release,
+    tracesSampleRate: bootConfig.sentry.tracesSampleRate,
+    profilesSampleRate: bootConfig.sentry.profilesSampleRate,
+    serverName: 'sociflow-ai',
+  })
+  if (sentryEnabled) {
+    new NestLogger('Sentry').log(`[ai] Sentry initialized (env=${bootConfig.sentry.environment})`)
+  }
+
   const app = await NestFactory.create(AppModule, { bufferLogs: true })
 
   app.useLogger(app.get(Logger))
@@ -33,10 +50,10 @@ async function bootstrap() {
   }
 
   await app.listen(PORT)
-  console.warn(`[ai] listening on http://localhost:${PORT}/api/v1`)
+  new NestLogger('Bootstrap').log(`[ai] listening on http://localhost:${PORT}/api/v1`)
 }
 
 bootstrap().catch((err) => {
-  console.error('[ai] bootstrap failed:', err)
+  new NestLogger('Bootstrap').error('[ai] bootstrap failed', err as Error)
   process.exit(1)
 })

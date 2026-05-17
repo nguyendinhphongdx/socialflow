@@ -4,7 +4,6 @@ import type { Job } from 'bullmq'
 import type { SocialAccount, PublishRecord, MediaAsset } from '@prisma/client'
 import { AppException, ResponseCode, RetryableError } from '@sociflow/common'
 import type { PublishCommand } from '@sociflow/ws-protocol'
-import { SocialAccountRepository } from '../social-account/social-account.repository'
 import { SocialAccountService } from '../social-account/social-account.service'
 import { MediaService } from '../media/media.service'
 import { PublishRepository } from './publish.repository'
@@ -32,7 +31,6 @@ export class PublishConsumer extends WorkerHost {
   constructor(
     private readonly repo: PublishRepository,
     private readonly service: PublishService,
-    private readonly accountRepo: SocialAccountRepository,
     private readonly accountService: SocialAccountService,
     private readonly mediaService: MediaService,
     private readonly registry: PublishProviderRegistry,
@@ -54,13 +52,14 @@ export class PublishConsumer extends WorkerHost {
       return
     }
 
-    const account = await this.accountRepo.getById(record.accountId)
+    const account = await this.accountService.getById(record.accountId)
     if (!account) {
       await this.service.markFailed(recordId, 'account_not_found', false)
       return
     }
 
-    const mediaAssets = await this.mediaService.listForPublishByUserId(record.userId, record.mediaIds)
+    // F-716 — worker context: dùng workspaceId trên PublishRecord (no CLS).
+    const mediaAssets = await this.mediaService.listForPublishByWorkspaceId(record.workspaceId, record.mediaIds)
 
     // Route theo publishMode: API → provider; AUTOMATION → agent dispatch
     if (account.publishMode === 'AUTOMATION') {
@@ -119,11 +118,11 @@ export class PublishConsumer extends WorkerHost {
     }
 
     const task = await this.automationTaskService.createForPublish({
-      publishRecordId: record.id,
+      publishRecord: record,
       agentId: account.agentId,
       command: 'PUBLISH_POST',
       payload,
-      timeoutAt: new Date(Date.now() + payload.timeout),
+      timeoutMs: payload.timeout,
     })
 
     const command: PublishCommand = {

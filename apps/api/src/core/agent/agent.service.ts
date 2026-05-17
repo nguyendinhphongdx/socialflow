@@ -76,7 +76,7 @@ export class AgentService {
       type: 'agent',
     }
     const agentToken = await this.jwt.signAsync(payload, {
-      secret: this.config.auth.jwtAccessSecret,
+      secret: this.config.auth.jwtAgentSecret,
       expiresIn: this.config.agent.tokenExpiration as unknown as number,
     })
     const tokenHash = sha256(agentToken)
@@ -125,14 +125,30 @@ export class AgentService {
   }
 
   /**
-   * Dùng cho WS Gateway: nhận raw JWT từ extension → hash → lookup row → trả agent.
-   * KHÔNG decode JWT để lấy userId (phải verify hash đã lưu để chống replay sau revoke).
+   * Dùng cho WS Gateway: nhận raw JWT từ extension → verify signature với
+   * `jwtAgentSecret` → hash → lookup row → trả agent.
+   *
+   * Hai layer:
+   * 1. JWT verify (signature + expiry + agent `type` claim) — chống token forgery
+   * 2. sha256 hash lookup — chống replay sau khi agent đã revoke (DB là source of truth)
    */
   async getByAgentToken(rawToken: string): Promise<AutomationAgent | null> {
     if (!rawToken) return null
+    let payload: AgentTokenPayload
+    try {
+      payload = await this.jwt.verifyAsync<AgentTokenPayload>(rawToken, {
+        secret: this.config.auth.jwtAgentSecret,
+      })
+    }
+    catch {
+      return null
+    }
+    if (payload.type !== 'agent') return null
     const hash = sha256(rawToken)
     const agent = await this.repo.getByAgentTokenSha256(hash)
     if (!agent || agent.revokedAt) return null
+    // Defense-in-depth: payload.sub phải match agentId trong DB
+    if (agent.id !== payload.sub) return null
     return agent
   }
 

@@ -11,6 +11,7 @@ import {
 } from '@sociflow/oauth'
 import { APP_CONFIG, type AppConfig } from '../../config'
 import { UserRepository } from '../user/user.repository'
+import { WorkspaceService } from '../workspace/workspace.service'
 
 @Injectable()
 export class GoogleAuthService {
@@ -23,6 +24,7 @@ export class GoogleAuthService {
     private readonly oauth: OAuthService,
     private readonly jwt: JwtService,
     private readonly ctx: RequestContextService,
+    private readonly workspaceService: WorkspaceService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.googleProvider = createGoogleProviderConfig({
@@ -57,7 +59,9 @@ export class GoogleAuthService {
     }
 
     const user = await this.upsertUser(profile.email, profile.name ?? null, profile.avatarUrl ?? null)
-    const sessionTokens = await this.issueTokens(user.id, user.email, user.role)
+    // F-716 — đảm bảo user có personal workspace + include trong token.
+    const workspace = await this.workspaceService.ensurePersonalWorkspace(user.id, user.name)
+    const sessionTokens = await this.issueTokens(user.id, user.email, user.role, workspace.id)
     return {
       user,
       tokens: sessionTokens,
@@ -88,7 +92,7 @@ export class GoogleAuthService {
     })
   }
 
-  private async issueTokens(userId: string, email: string, role: 'USER' | 'ADMIN') {
+  private async issueTokens(userId: string, email: string, role: 'USER' | 'ADMIN', workspaceId?: string) {
     const refreshToken = randomBytes(48).toString('base64url')
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
     const session = await this.sessionRepo.create({
@@ -104,6 +108,7 @@ export class GoogleAuthService {
       email,
       role,
       sessionId: session.id,
+      workspaceId,
     }
 
     const accessToken = await this.jwt.signAsync(payload, {

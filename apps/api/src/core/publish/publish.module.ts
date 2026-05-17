@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module'
 import { MediaModule } from '../media/media.module'
 import { SocialAccountModule } from '../social-account/social-account.module'
 import { AgentWsModule } from '../agent/ws/agent-ws.module'
+import { ApiKeyModule } from '../api-key/api-key.module'
 import { QUEUE_NAMES } from '../../libs/queue/queue.module'
 import { PublishController } from './publish.controller'
 import { PublishRepository } from './publish.repository'
@@ -21,6 +22,7 @@ import { TikTokProvider } from './providers/tiktok.provider'
     SocialAccountModule,
     MediaModule,
     AgentWsModule,                    // AgentDispatcherService + AutomationTaskService cho AUTOMATION mode
+    ApiKeyModule,                     // ApiKeyAuthGuard cho dual-auth controller
     BullModule.registerQueue({ name: QUEUE_NAMES.PUBLISH_IMMEDIATE }),
   ],
   controllers: [PublishController],
@@ -34,6 +36,6 @@ import { TikTokProvider } from './providers/tiktok.provider'
     InstagramProvider,
     TikTokProvider,
   ],
-  exports: [PublishService, PublishRepository],
+  exports: [PublishService],
 })
 export class PublishModule {}

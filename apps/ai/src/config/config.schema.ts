@@ -29,6 +29,13 @@ export const ConfigSchema = z.object({
       imageProvider: z.enum(['openai']).default('openai'),
     }),
   }),
+  sentry: z.object({
+    dsn: z.string().optional().describe('SENTRY_DSN — bỏ trống = disable Sentry (dev/local)'),
+    environment: z.string().default('development'),
+    release: z.string().optional().describe('GIT_SHA hoặc semver — track per-deploy issue'),
+    tracesSampleRate: z.coerce.number().min(0).max(1).default(0.1),
+    profilesSampleRate: z.coerce.number().min(0).max(1).default(0.1),
+  }),
 })
 
 export type AppConfig = z.infer<typeof ConfigSchema>

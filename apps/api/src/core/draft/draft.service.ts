@@ -18,8 +18,10 @@ export class DraftService {
 
   async create(dto: CreateDraftDto): Promise<Draft> {
     const userId = this.ctx.requireUserId()
+    const workspaceId = this.ctx.requireWorkspaceId()
     return this.repo.create({
       user: { connect: { id: userId } },
+      workspace: { connect: { id: workspaceId } },
       title: dto.title,
       body: dto.body,
       mediaIds: dto.mediaIds,
@@ -28,20 +30,30 @@ export class DraftService {
     })
   }
 
+  /** @deprecated F-716 — dùng `listByCurrentWorkspace`. */
   async listByCurrentUser(pagination: PaginationDto, filter?: { tag?: string }) {
-    const userId = this.ctx.requireUserId()
-    return this.repo.listByUserWithPagination(userId, pagination, filter)
+    return this.listByCurrentWorkspace(pagination, filter)
   }
 
+  async listByCurrentWorkspace(pagination: PaginationDto, filter?: { tag?: string }) {
+    const workspaceId = this.ctx.requireWorkspaceId()
+    return this.repo.listByWorkspaceWithPagination(workspaceId, pagination, filter)
+  }
+
+  /** @deprecated F-716 — dùng `getByCurrentWorkspaceAndId`. */
   async getByCurrentUserAndId(id: string): Promise<Draft> {
-    const userId = this.ctx.requireUserId()
-    const draft = await this.repo.getByIdAndUserId(id, userId)
+    return this.getByCurrentWorkspaceAndId(id)
+  }
+
+  async getByCurrentWorkspaceAndId(id: string): Promise<Draft> {
+    const workspaceId = this.ctx.requireWorkspaceId()
+    const draft = await this.repo.getByIdAndWorkspaceId(id, workspaceId)
     if (!draft) throw new AppException(ResponseCode.DraftNotFound, { draftId: id })
     return draft
   }
 
   async update(id: string, dto: UpdateDraftDto): Promise<Draft> {
-    const existing = await this.getByCurrentUserAndId(id)
+    const existing = await this.getByCurrentWorkspaceAndId(id)
     return this.repo.updateById(existing.id, {
       ...(dto.title !== undefined && { title: dto.title }),
       ...(dto.body !== undefined && { body: dto.body }),
@@ -54,12 +66,12 @@ export class DraftService {
   }
 
   async softDelete(id: string): Promise<void> {
-    const draft = await this.getByCurrentUserAndId(id)
+    const draft = await this.getByCurrentWorkspaceAndId(id)
     await this.repo.softDeleteById(draft.id)
   }
 
   async publishDraft(id: string, dto: PublishDraftDto): Promise<PublishRecord[]> {
-    const draft = await this.getByCurrentUserAndId(id)
+    const draft = await this.getByCurrentWorkspaceAndId(id)
     const records = await this.publishService.createBundle({
       accountIds: dto.accountIds,
       title: draft.title ?? undefined,

@@ -4,7 +4,8 @@ import { useRouter } from 'next/navigation'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
-import interactionPlugin, { type EventClickArg } from '@fullcalendar/interaction'
+import type { EventClickArg } from '@fullcalendar/core'
+import interactionPlugin from '@fullcalendar/interaction'
 import { usePublishList, type PublishRecord } from '@/features/publish'
 
 const STATUS_COLOR: Record<PublishRecord['status'], string> = {

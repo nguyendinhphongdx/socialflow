@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto'
 import {
   Body,
   Controller,
@@ -7,36 +6,47 @@ import {
   HttpCode,
   Inject,
   Logger,
-  Param,
   Post,
   Query,
   Req,
 } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import type { Request } from 'express'
-import { AppException, constantTimeEqual, Public, ResponseCode } from '@sociflow/common'
+import Stripe from 'stripe'
+import { AppException, Public, ResponseCode } from '@sociflow/common'
 import { APP_CONFIG, type AppConfig } from '../../config'
+import { CreditsService } from '../credits/credits.service'
+import {
+  FacebookWebhookPayloadSchema,
+  InstagramWebhookPayloadSchema,
+  TikTokWebhookPayloadSchema,
+} from './dto'
 import { WebhookService } from './webhook.service'
 
-export type WebhookSource = 'facebook' | 'instagram' | 'tiktok'
+export type WebhookSource = 'facebook' | 'instagram' | 'tiktok' | 'stripe'
 
 /**
- * Public webhook receiver. Mỗi platform verify signature riêng.
+ * Public webhook receiver. Mỗi platform có endpoint riêng + DTO type-safe.
  *
- * Phase 2 minimal: chỉ Facebook. IG + TT ở Phase tiếp.
+ * Signature verify ở controller (cần raw body) → service nhận payload đã
+ * verify + parse qua zod.
  */
 @ApiTags('Webhook')
 @Controller('/webhook')
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name)
+  private readonly stripe: Stripe
 
   constructor(
     private readonly service: WebhookService,
+    private readonly creditsService: CreditsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-  ) {}
+  ) {
+    this.stripe = new Stripe(config.stripe.secretKey, { apiVersion: '2026-04-22.dahlia' })
+  }
 
   /**
-   * Facebook webhook verification (GET — Meta call lúc subscribe).
+   * Facebook webhook subscribe verification (Meta call lúc subscribe webhook).
    */
   @Public()
   @Get('/facebook')
@@ -45,16 +55,11 @@ export class WebhookController {
     @Query('hub.verify_token') token: string,
     @Query('hub.challenge') challenge: string,
   ): string {
-    const expected = process.env.FACEBOOK_WEBHOOK_VERIFY_TOKEN ?? 'change-me'
-    if (mode === 'subscribe' && constantTimeEqual(token, expected)) {
-      return challenge
-    }
-    throw new AppException(ResponseCode.AccessDenied, { reason: 'fb_verify_token_mismatch' })
+    return this.service.verifyMetaSubscribe(mode, token, challenge)
   }
 
   /**
-   * Instagram webhook verification dùng chung token với FB app
-   * (Meta Business app shared cho cả 2 product).
+   * Instagram webhook subscribe verification (share token với FB app).
    */
   @Public()
   @Get('/instagram')
@@ -63,12 +68,11 @@ export class WebhookController {
     @Query('hub.verify_token') token: string,
     @Query('hub.challenge') challenge: string,
   ): string {
-    return this.verifyFacebook(mode, token, challenge)
+    return this.service.verifyMetaSubscribe(mode, token, challenge)
   }
 
   /**
-   * Facebook webhook event delivery (POST).
-   * Verify HMAC-SHA256 với app secret + raw body.
+   * Facebook page event delivery. Verify HMAC-SHA256 với app secret + raw body.
    */
   @Public()
   @HttpCode(200)
@@ -77,15 +81,16 @@ export class WebhookController {
     @Req() req: Request,
     @Headers('x-hub-signature-256') signature: string | undefined,
     @Body() body: unknown,
-  ) {
-    this.verifyFacebookSignature(req, signature)
-    await this.service.handleFacebook(body)
+  ): Promise<{ ok: true }> {
+    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody
+    this.service.verifyMetaSignature(signature, rawBody)
+    const payload = FacebookWebhookPayloadSchema.parse(body)
+    await this.service.handleFacebook(payload)
     return { ok: true }
   }
 
   /**
-   * Instagram webhook delivery (POST). Cùng cơ chế signature như FB
-   * (Meta Graph dùng `x-hub-signature-256` + app secret).
+   * Instagram event delivery — cùng cơ chế signature như FB.
    */
   @Public()
   @HttpCode(200)
@@ -94,37 +99,69 @@ export class WebhookController {
     @Req() req: Request,
     @Headers('x-hub-signature-256') signature: string | undefined,
     @Body() body: unknown,
-  ) {
-    this.verifyFacebookSignature(req, signature)
-    // WebhookService.handleFacebook nhận `object` field từ payload (page|instagram)
-    // → tự branch sang IG path.
-    await this.service.handleFacebook(body)
+  ): Promise<{ ok: true }> {
+    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody
+    this.service.verifyMetaSignature(signature, rawBody)
+    const payload = InstagramWebhookPayloadSchema.parse(body)
+    await this.service.handleInstagram(payload)
     return { ok: true }
   }
 
   /**
-   * Generic stub cho TT — implement sau khi có app credentials.
+   * TikTok event delivery — content posting status update.
+   * TT đã ký với app secret + timestamp; phase tiếp implement verify.
    */
   @Public()
   @HttpCode(200)
-  @Post('/:source')
-  async handleOther(@Param('source') source: string, @Body() body: unknown) {
-    this.logger.log(`Webhook received from ${source}: ${JSON.stringify(body).slice(0, 200)}`)
+  @Post('/tiktok')
+  async handleTikTok(@Body() body: unknown): Promise<{ ok: true }> {
+    const payload = TikTokWebhookPayloadSchema.parse(body)
+    await this.service.handleTikTok(payload)
     return { ok: true }
   }
 
-  private verifyFacebookSignature(req: Request, signature: string | undefined): void {
+  /**
+   * Stripe event delivery.
+   *
+   * Verify signature qua `stripe.webhooks.constructEvent(rawBody, sig, secret)`.
+   * Dispatch event qua CreditsService → enqueue BullMQ job → ack 200 ngay
+   * (Stripe yêu cầu phản hồi <30s, không xử lý nặng inline).
+   */
+  @Public()
+  @HttpCode(200)
+  @Post('/stripe')
+  async handleStripe(
+    @Req() req: Request,
+    @Headers('stripe-signature') signature: string | undefined,
+  ): Promise<{ received: true }> {
     if (!signature) {
-      throw new AppException(ResponseCode.AccessDenied, { reason: 'missing_signature' })
+      throw new AppException(ResponseCode.StripeWebhookInvalid, { reason: 'missing_signature' })
     }
     const rawBody = (req as Request & { rawBody?: Buffer }).rawBody
     if (!rawBody) {
-      // CORS/raw body middleware chưa setup → reject để fail loud
       throw new AppException(ResponseCode.InternalError, { reason: 'raw_body_not_available' })
     }
-    const expected = `sha256=${createHmac('sha256', this.config.oauth.facebook.clientSecret).update(rawBody).digest('hex')}`
-    if (!constantTimeEqual(signature, expected)) {
-      throw new AppException(ResponseCode.AccessDenied, { reason: 'invalid_signature' })
+
+    let event: Stripe.Event
+    try {
+      event = this.stripe.webhooks.constructEvent(
+        rawBody,
+        signature,
+        this.config.stripe.webhookSecret,
+      )
+    } catch (err) {
+      this.logger.warn(
+        `Stripe signature verify failed: ${err instanceof Error ? err.message : 'unknown'}`,
+      )
+      throw new AppException(ResponseCode.StripeWebhookInvalid, { reason: 'signature_mismatch' })
     }
+
+    this.logger.log(`Stripe webhook received: ${event.type} id=${event.id}`)
+    await this.creditsService.dispatchStripeEvent({
+      id: event.id,
+      type: event.type,
+      data: { object: event.data.object as unknown as Record<string, unknown> },
+    })
+    return { received: true }
   }
 }

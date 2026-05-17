@@ -1,0 +1,43 @@
+{
+  "common": {
+    "appName": "Sociflow",
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "ok": "OK",
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit",
+    "search": "Search",
+    "language": "Language"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "compose": "Compose",
+    "calendar": "Calendar",
+    "drafts": "Drafts",
+    "accounts": "Accounts",
+    "analytics": "Analytics",
+    "settings": "Settings",
+    "inbox": "Inbox",
+    "billing": "Billing"
+  },
+  "auth": {
+    "login": "Sign in",
+    "register": "Sign up",
+    "logout": "Sign out",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "rememberMe": "Remember me"
+  },
+  "help": {
+    "title": "Help Center",
+    "subtitle": "Guides, FAQ and support contact",
+    "gettingStarted": "Getting started",
+    "faq": "Frequently asked questions",
+    "contact": "Contact us"
+  }
+}

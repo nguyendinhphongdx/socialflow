@@ -1,16 +1,16 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { InjectQueue } from '@nestjs/bullmq'
 import type { Queue } from 'bullmq'
 import { cuid } from './cuid-helper'
-import type { Prisma, PublishRecord, PublishStatus } from '@prisma/client'
-import { AppException, ResponseCode, type PaginationDto } from '@sociflow/common'
+import type { PublishRecord, PublishStatus } from '@prisma/client'
+import { AppException, ResponseCode, type Paginated, type PaginationDto } from '@sociflow/common'
 import { RequestContextService } from '@sociflow/auth'
 import { SocialAccountService } from '../social-account/social-account.service'
-import { SocialAccountRepository } from '../social-account/social-account.repository'
 import { MediaService } from '../media/media.service'
-import { PublishRepository } from './publish.repository'
+import { PublishRepository, type PublishRecordWithAccount } from './publish.repository'
 import type { CreatePublishDto } from './publish.dto'
 import { QUEUE_NAMES } from '../../libs/queue/queue.module'
+import { RedlockService } from '../../libs/redlock/redlock.service'
 
 interface PublishImmediateJob {
   recordId: string
@@ -22,29 +22,44 @@ export class PublishService {
 
   constructor(
     private readonly repo: PublishRepository,
-    private readonly accountRepo: SocialAccountRepository,
     private readonly accountService: SocialAccountService,
     private readonly mediaService: MediaService,
     private readonly ctx: RequestContextService,
     @InjectQueue(QUEUE_NAMES.PUBLISH_IMMEDIATE)
     private readonly queue: Queue<PublishImmediateJob>,
+    private readonly redlock: RedlockService,
   ) {}
 
   async createBundle(dto: CreatePublishDto): Promise<PublishRecord[]> {
     const userId = this.ctx.requireUserId()
+    const workspaceId = this.ctx.requireWorkspaceId()
 
-    // Idempotency check
+    // Distributed lock per (workspaceId, idempotencyKey) chống double-submit từ
+    // 2 tab/2 client cùng gửi 1 request — DB unique constraint là backstop,
+    // nhưng lock cho UX tốt hơn (caller chờ thay vì 409).
     if (dto.idempotencyKey) {
-      const existing = await this.repo.getByIdempotencyKey(userId, dto.idempotencyKey)
+      return this.redlock.withLock(
+        `publish:bundle:${workspaceId}:${dto.idempotencyKey}`,
+        () => this.createBundleInner(userId, workspaceId, dto),
+        { ttlMs: 30_000 },
+      )
+    }
+    return this.createBundleInner(userId, workspaceId, dto)
+  }
+
+  private async createBundleInner(userId: string, workspaceId: string, dto: CreatePublishDto): Promise<PublishRecord[]> {
+    // Idempotency check (workspace-scoped)
+    if (dto.idempotencyKey) {
+      const existing = await this.repo.getByWorkspaceIdAndIdempotencyKey(workspaceId, dto.idempotencyKey)
       if (existing) {
-        return this.repo.listByUserWithPagination(userId, { page: 1, pageSize: 50 }, { flowId: existing.flowId ?? undefined })
+        return this.repo.listByWorkspaceWithPagination(workspaceId, { page: 1, pageSize: 50 }, { flowId: existing.flowId ?? undefined })
           .then(p => p.list)
       }
     }
 
-    // Verify accounts owned + ACTIVE
+    // Verify accounts owned + ACTIVE (workspace-scoped qua getByIdForCurrentUser)
     const accounts = await Promise.all(
-      dto.accountIds.map(id => this.accountRepo.getByIdAndUserId(id, userId)),
+      dto.accountIds.map(id => this.accountService.getByIdForCurrentUser(id)),
     )
     if (accounts.some(a => !a || a.status !== 'ACTIVE')) {
       throw new AppException(ResponseCode.AccountNotFound, {
@@ -64,6 +79,7 @@ export class PublishService {
     for (const [i, account] of accounts.entries()) {
       const record = await this.repo.create({
         user: { connect: { id: userId } },
+        workspace: { connect: { id: workspaceId } },
         account: { connect: { id: account!.id } },
         flowId,
         publishMode: account!.publishMode,
@@ -93,20 +109,45 @@ export class PublishService {
     return created
   }
 
-  async listByCurrentUser(pagination: PaginationDto, filter?: { status?: any, accountId?: string, flowId?: string }) {
-    const userId = this.ctx.requireUserId()
-    return this.repo.listByUserWithPagination(userId, pagination, filter)
+  /** @deprecated F-716 — dùng `listByCurrentWorkspace`. */
+  async listByCurrentUser(
+    pagination: PaginationDto,
+    filter?: { status?: PublishStatus, accountId?: string, flowId?: string },
+  ): Promise<Paginated<PublishRecordWithAccount>> {
+    return this.listByCurrentWorkspace(pagination, filter)
   }
 
+  async listByCurrentWorkspace(
+    pagination: PaginationDto,
+    filter?: { status?: PublishStatus, accountId?: string, flowId?: string },
+  ): Promise<Paginated<PublishRecordWithAccount>> {
+    const workspaceId = this.ctx.requireWorkspaceId()
+    return this.repo.listByWorkspaceWithPagination(workspaceId, pagination, filter)
+  }
+
+  /**
+   * Lấy bundle các record cùng `flowId` của workspace hiện tại — dùng cho response
+   * của `createBundle` (controller).
+   */
+  async listBundleByFlowId(flowId: string): Promise<Paginated<PublishRecordWithAccount>> {
+    const workspaceId = this.ctx.requireWorkspaceId()
+    return this.repo.listByWorkspaceWithPagination(workspaceId, { page: 1, pageSize: 50 }, { flowId })
+  }
+
+  /** @deprecated F-716 — dùng `getByCurrentWorkspaceAndId`. */
   async getByCurrentUserAndId(id: string) {
-    const userId = this.ctx.requireUserId()
-    const record = await this.repo.getByIdAndUserId(id, userId)
+    return this.getByCurrentWorkspaceAndId(id)
+  }
+
+  async getByCurrentWorkspaceAndId(id: string) {
+    const workspaceId = this.ctx.requireWorkspaceId()
+    const record = await this.repo.getByIdAndWorkspaceId(id, workspaceId)
     if (!record) throw new AppException(ResponseCode.PublishTaskNotFound, { recordId: id })
     return record
   }
 
   async cancel(id: string): Promise<PublishRecord> {
-    const record = await this.getByCurrentUserAndId(id)
+    const record = await this.getByCurrentWorkspaceAndId(id)
     if (['PUBLISHED', 'CANCELLED', 'REJECTED'].includes(record.status)) {
       throw new AppException(ResponseCode.PublishTaskInvalid, { reason: 'already_finalized' })
     }
@@ -149,5 +190,37 @@ export class PublishService {
       status: 'REJECTED',
       errorMessage: reason,
     })
+  }
+
+  /**
+   * Lookup theo id (không kiểm tra ownership) — worker context (insight rollup,
+   * cross-user scheduler) khi không có user CLS.
+   */
+  async getById(id: string): Promise<PublishRecord | null> {
+    return this.repo.getById(id)
+  }
+
+  /**
+   * Lookup theo id + userId tường minh — dùng cho insight worker khi userId
+   * đến từ context khác CLS (vd resolved từ publish record).
+   */
+  async getByIdAndUserId(id: string, userId: string): Promise<PublishRecordWithAccount | null> {
+    return this.repo.getByIdAndUserId(id, userId)
+  }
+
+  /**
+   * List record `PUBLISHED` cho 1 account trong khoảng thời gian — insight
+   * service dùng để aggregate engagement theo ngày.
+   */
+  async listPublishedByAccountInRange(accountId: string, fromDate: Date, toDate: Date): Promise<PublishRecord[]> {
+    return this.repo.listPublishedByAccountInRange(accountId, fromDate, toDate)
+  }
+
+  /**
+   * List record published gần đây có `platformPostId` — insight.scheduler batch
+   * fetch metric từ platform.
+   */
+  async listRecentPublishedWithPlatformPostId(sinceDate: Date, limit?: number): Promise<PublishRecord[]> {
+    return this.repo.listRecentPublishedWithPlatformPostId(sinceDate, limit)
   }
 }

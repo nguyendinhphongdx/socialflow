@@ -1,73 +1,73 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { createHmac } from 'node:crypto'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import type { AccountPlatform } from '@prisma/client'
-import { SocialAccountRepository } from '../social-account/social-account.repository'
+import { AppException, constantTimeEqual, ResponseCode } from '@sociflow/common'
+import { APP_CONFIG, type AppConfig } from '../../config'
+import { SocialAccountService } from '../social-account/social-account.service'
 import { CommentService } from '../comment/comment.service'
 import type { IngestCommentInput } from '../comment/comment.repository'
+import type {
+  FacebookChange,
+  FacebookWebhookPayload,
+  InstagramWebhookPayload,
+  TikTokWebhookPayload,
+} from './dto'
 
 /**
- * Meta webhook payload (FB + IG share schema):
+ * Webhook business handler. Controller verify signature + parse DTO,
+ * service nhận payload đã typed.
  *
- * {
- *   object: 'page' | 'instagram',
- *   entry: [{
- *     id: <pageId | igUserId>,
- *     time: <unix>,
- *     changes: [{
- *       field: 'feed' | 'comments' | 'mention',
- *       value: { item: 'comment', verb: 'add' | 'edited' | 'remove', ... }
- *     }]
- *   }]
- * }
- *
- * Tài liệu ref: https://developers.facebook.com/docs/graph-api/webhooks/reference/page
+ * Idempotency: FB/IG payload không có top-level event id duy nhất —
+ * dedupe ở mức từng change (comment_id, post_id). Comment ingest đã
+ * có unique constraint `(platform, platformCommentId)` chống duplicate.
  */
-interface FbChangeValue {
-  item?: string
-  verb?: string
-  comment_id?: string
-  post_id?: string
-  parent_id?: string
-  message?: string
-  created_time?: number
-  from?: { id?: string, name?: string }
-  // IG-specific
-  id?: string
-  text?: string
-  media?: { id?: string }
-}
-
-interface FbWebhookPayload {
-  object?: 'page' | 'instagram'
-  entry?: Array<{
-    id?: string
-    time?: number
-    changes?: Array<{ field?: string, value?: FbChangeValue }>
-  }>
-}
-
 @Injectable()
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name)
 
   constructor(
-    private readonly accountRepo: SocialAccountRepository,
+    private readonly accountService: SocialAccountService,
     private readonly commentService: CommentService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   /**
-   * Phase 6 Facebook page webhook: feed/comments dispatch.
-   * Mỗi entry.id = pageId → tra cứu SocialAccount → ingest comment.
+   * Verify Meta `x-hub-signature-256` header. Throw AppException nếu fail.
+   * Dùng cho cả Facebook + Instagram (cùng app secret).
    */
-  async handleFacebook(body: unknown): Promise<void> {
-    const payload = body as FbWebhookPayload
-    const platform: AccountPlatform = payload.object === 'instagram' ? 'INSTAGRAM' : 'FACEBOOK'
-    const entries = payload.entry ?? []
+  verifyMetaSignature(signature: string | undefined, rawBody: Buffer | undefined): void {
+    if (!signature) {
+      throw new AppException(ResponseCode.AccessDenied, { reason: 'missing_signature' })
+    }
+    if (!rawBody) {
+      throw new AppException(ResponseCode.InternalError, { reason: 'raw_body_not_available' })
+    }
+    const expected = `sha256=${createHmac('sha256', this.config.oauth.facebook.clientSecret)
+      .update(rawBody)
+      .digest('hex')}`
+    if (!constantTimeEqual(signature, expected)) {
+      throw new AppException(ResponseCode.AccessDenied, { reason: 'invalid_signature' })
+    }
+  }
 
-    for (const entry of entries) {
+  /**
+   * Verify Meta GET subscribe challenge. Trả `challenge` nếu OK, throw nếu fail.
+   */
+  verifyMetaSubscribe(mode: string, token: string, challenge: string): string {
+    const expected = this.config.webhook.facebookVerifyToken
+    if (mode === 'subscribe' && constantTimeEqual(token, expected)) {
+      return challenge
+    }
+    throw new AppException(ResponseCode.AccessDenied, { reason: 'fb_verify_token_mismatch' })
+  }
+
+  async handleFacebook(payload: FacebookWebhookPayload): Promise<void> {
+    const platform: AccountPlatform = payload.object === 'instagram' ? 'INSTAGRAM' : 'FACEBOOK'
+    for (const entry of payload.entry) {
       const pageOrIgId = entry.id
       if (!pageOrIgId) continue
 
-      const account = await this.accountRepo.findByPlatformUid(platform, pageOrIgId)
+      const account = await this.accountService.findByPlatformUid(platform, pageOrIgId)
       if (!account) {
         this.logger.warn(`No SocialAccount cho ${platform} uid=${pageOrIgId} — bỏ qua`)
         continue
@@ -80,26 +80,39 @@ export class WebhookService {
     }
   }
 
+  async handleInstagram(payload: InstagramWebhookPayload): Promise<void> {
+    // IG payload là FB payload với object=instagram. Reuse handler.
+    await this.handleFacebook(payload as unknown as FacebookWebhookPayload)
+  }
+
+  async handleTikTok(payload: TikTokWebhookPayload): Promise<void> {
+    // Phase tiếp: dispatch theo `event` type (publish.complete / publish.failed)
+    // sang PublishService.markPublished / markRejected. Hiện ack + log.
+    this.logger.log(
+      `TikTok webhook: event=${payload.event} user=${payload.user_openid} create_time=${payload.create_time}`,
+    )
+  }
+
   private async handleChange(
     accountId: string,
     userId: string,
     platform: AccountPlatform,
-    change: { field?: string, value?: FbChangeValue },
+    change: FacebookChange,
   ): Promise<void> {
     const value = change.value
     if (!value) return
     const verb = value.verb
 
-    // Chỉ ingest item=comment, verb=add (mới). Edit/remove sẽ handle ở phase sau.
+    // Chỉ ingest item=comment, verb=add (mới). Edit/remove handle ở phase sau.
     const isComment = value.item === 'comment' || change.field === 'comments'
     if (!isComment) return
     if (verb && verb !== 'add') {
-      this.logger.debug(`Skip ${platform} comment ${value.comment_id ?? value.id} verb=${verb}`)
+      this.logger.debug(`Skip ${platform} comment ${value.comment_id} verb=${verb}`)
       return
     }
 
-    const commentId = value.comment_id ?? value.id
-    const text = value.message ?? value.text ?? ''
+    const commentId = value.comment_id
+    const text = value.message
     if (!commentId || !text) {
       this.logger.warn(`Missing commentId/text in ${platform} webhook payload`)
       return

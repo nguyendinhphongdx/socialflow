@@ -1,9 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common'
-import type { AccountInsight, PostInsight, Prisma, SocialAccount } from '@prisma/client'
+import type { AccountInsight, PostInsight, Prisma, PublishRecord, SocialAccount } from '@prisma/client'
 import { AppException, ResponseCode } from '@sociflow/common'
 import { RequestContextService } from '@sociflow/auth'
-import { PublishRepository } from '../publish/publish.repository'
-import { SocialAccountRepository } from '../social-account/social-account.repository'
+import { PublishService } from '../publish/publish.service'
 import { SocialAccountService } from '../social-account/social-account.service'
 import { PostInsightRepository } from './post-insight.repository'
 import { AccountInsightRepository } from './account-insight.repository'
@@ -25,8 +24,7 @@ export class InsightService {
   constructor(
     private readonly postRepo: PostInsightRepository,
     private readonly accountInsightRepo: AccountInsightRepository,
-    private readonly publishRepo: PublishRepository,
-    private readonly accountRepo: SocialAccountRepository,
+    private readonly publishService: PublishService,
     private readonly accountService: SocialAccountService,
     private readonly registry: InsightProviderRegistry,
     private readonly ctx: RequestContextService,
@@ -52,7 +50,7 @@ export class InsightService {
    */
   async listAccountTimelineByCurrentUser(accountId: string, days: number): Promise<AccountTimelinePoint[]> {
     const userId = this.ctx.requireUserId()
-    const account = await this.accountRepo.getByIdAndUserId(accountId, userId)
+    const account = await this.accountService.getByIdAndUserId(accountId, userId)
     if (!account) throw new AppException(ResponseCode.AccountNotFound, { accountId })
 
     const toDate = startOfUtcDay(new Date())
@@ -81,7 +79,7 @@ export class InsightService {
    * Dùng từ consumer (queue) hoặc service-internal khi user manual trigger.
    */
   async snapshotPostInsight(publishRecordId: string): Promise<PostInsight> {
-    const record = await this.publishRepo.getById(publishRecordId)
+    const record = await this.publishService.getById(publishRecordId)
     if (!record) {
       throw new AppException(ResponseCode.PublishTaskNotFound, { publishRecordId })
     }
@@ -92,7 +90,7 @@ export class InsightService {
         status: record.status,
       })
     }
-    const account = await this.accountRepo.getById(record.accountId)
+    const account = await this.accountService.getById(record.accountId)
     if (!account) throw new AppException(ResponseCode.AccountNotFound, { accountId: record.accountId })
 
     const provider = this.registry.get(account.platform)
@@ -116,13 +114,13 @@ export class InsightService {
    * trong day + lấy followers count hiện tại từ provider.
    */
   async rollupAccountDailyInsight(accountId: string, date: Date): Promise<AccountInsight> {
-    const account = await this.accountRepo.getById(accountId)
+    const account = await this.accountService.getById(accountId)
     if (!account) throw new AppException(ResponseCode.AccountNotFound, { accountId })
 
     const dayStart = startOfUtcDay(date)
     const dayEnd = new Date(dayStart.getTime() + 86_400_000 - 1)
 
-    const records = await this.publishRepo.listPublishedByAccountInRange(accountId, dayStart, dayEnd)
+    const records = await this.publishService.listPublishedByAccountInRange(accountId, dayStart, dayEnd)
     const recordIds = records.map(r => r.id)
     const totals = await this.aggregateLatestForRecords(recordIds)
 
@@ -168,9 +166,39 @@ export class InsightService {
     }
   }
 
+  /**
+   * Backfill historical: tìm published records trong [daysBack, recentCutoffDays] ngày trước
+   * mà chưa có PostInsight nào → trả về list recordIds để scheduler enqueue.
+   *
+   * `recentCutoffDays`: tránh overlap với cron 6h (đã handle records mới <2 ngày)
+   * `limit`: tránh burst rate-limit; scheduler chạy weekly nên 500/lần đủ.
+   */
+  async findRecordsMissingInsights(
+    daysBack: number,
+    recentCutoffDays: number,
+    limit: number,
+  ): Promise<PublishRecord[]> {
+    const now = Date.now()
+    const fromDate = new Date(now - daysBack * 86_400_000)
+    const toDate = new Date(now - recentCutoffDays * 86_400_000)
+
+    // Pull window rộng rồi filter những record chưa có insight.
+    // Lookup 1 query với inverse exists pattern: 2x batch để bù record đã có insight bị skip.
+    const candidates = await this.publishService.listRecentPublishedWithPlatformPostId(fromDate, limit * 2)
+    const missing: PublishRecord[] = []
+    for (const record of candidates) {
+      if (missing.length >= limit) break
+      if (record.publishedAt && record.publishedAt > toDate) continue
+      const existing = await this.postRepo.latestByPublishRecordId(record.id)
+      if (!existing) missing.push(record)
+    }
+    this.logger.log(`Backfill scan: ${candidates.length} candidates → ${missing.length} missing insight`)
+    return missing
+  }
+
   private async assertPublishRecordOwnership(publishRecordId: string): Promise<void> {
     const userId = this.ctx.requireUserId()
-    const record = await this.publishRepo.getByIdAndUserId(publishRecordId, userId)
+    const record = await this.publishService.getByIdAndUserId(publishRecordId, userId)
     if (!record) throw new AppException(ResponseCode.PublishTaskNotFound, { publishRecordId })
   }
 }

@@ -55,3 +55,29 @@ export class CommentVo extends createZodDto(CommentVoSchema, 'CommentVo') {
 }
 
 export class CommentListVo extends createPaginationVo(CommentVoSchema, 'CommentListVo') {}
+
+export const BulkActionResultVoSchema = z.object({
+  total: z.number().int(),
+  succeeded: z.number().int(),
+  failed: z.number().int(),
+  failures: z.array(z.object({
+    commentId: z.string(),
+    reason: z.string(),
+  })),
+})
+
+export interface BulkFailure {
+  commentId: string
+  reason: string
+}
+
+export class BulkActionResultVo extends createZodDto(BulkActionResultVoSchema, 'BulkActionResultVo') {
+  static build(total: number, failures: BulkFailure[]) {
+    return BulkActionResultVoSchema.parse({
+      total,
+      succeeded: total - failures.length,
+      failed: failures.length,
+      failures,
+    })
+  }
+}

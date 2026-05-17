@@ -3,6 +3,10 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { ApiDoc } from '@sociflow/common'
 import { CommentService } from './comment.service'
 import {
+  BulkActionDto,
+  BulkActionDtoSchema,
+  BulkReplyDto,
+  BulkReplyDtoSchema,
   ListCommentDto,
   ListCommentDtoSchema,
   MarkCommentDto,
@@ -10,7 +14,7 @@ import {
   ReplyCommentDto,
   ReplyCommentDtoSchema,
 } from './comment.dto'
-import { CommentListVo, CommentVo } from './comment.vo'
+import { BulkActionResultVo, CommentListVo, CommentVo } from './comment.vo'
 
 @ApiTags('Comment')
 @ApiBearerAuth()
@@ -76,5 +80,49 @@ export class CommentController {
   async delete(@Param('id') id: string): Promise<{ ok: true }> {
     await this.service.softDelete(id)
     return { ok: true }
+  }
+
+  @ApiDoc({
+    summary: 'Bulk reply nhiều comment cùng nội dung',
+    body: BulkReplyDtoSchema,
+    response: BulkActionResultVo,
+  })
+  @Post('/bulk/reply')
+  async bulkReply(@Body() dto: BulkReplyDto) {
+    const { total, failures } = await this.service.bulkReply(dto.commentIds, dto.replyText)
+    return BulkActionResultVo.build(total, failures)
+  }
+
+  @ApiDoc({
+    summary: 'Bulk mark replied',
+    body: BulkActionDtoSchema,
+    response: BulkActionResultVo,
+  })
+  @Post('/bulk/mark-replied')
+  async bulkMarkReplied(@Body() dto: BulkActionDto) {
+    const { total, failures } = await this.service.bulkMarkReplied(dto.commentIds)
+    return BulkActionResultVo.build(total, failures)
+  }
+
+  @ApiDoc({
+    summary: 'Bulk archive (ignore) comment',
+    body: BulkActionDtoSchema,
+    response: BulkActionResultVo,
+  })
+  @Post('/bulk/archive')
+  async bulkArchive(@Body() dto: BulkActionDto) {
+    const { total, failures } = await this.service.bulkArchive(dto.commentIds)
+    return BulkActionResultVo.build(total, failures)
+  }
+
+  @ApiDoc({
+    summary: 'Bulk soft delete comment',
+    body: BulkActionDtoSchema,
+    response: BulkActionResultVo,
+  })
+  @Post('/bulk/delete')
+  async bulkDelete(@Body() dto: BulkActionDto) {
+    const { total, failures } = await this.service.bulkSoftDelete(dto.commentIds)
+    return BulkActionResultVo.build(total, failures)
   }
 }

@@ -12,7 +12,11 @@
  * - 16000-16999 : AI
  * - 17000-17999 : engagement
  * - 18000-18999 : agent / extension
- * - 19000+      : module-specific (allocate khi cần)
+ * - 19000-19099 : draft
+ * - 19100-19199 : credits / billing (Stripe)
+ * - 19200+      : module-specific (allocate khi cần)
+ * - 22000+      : concurrency / distributed lock
+ * - 23000+      : workspace (multi-tenant F-716)
  */
 export enum ResponseCode {
   Success = 0,
@@ -32,6 +36,8 @@ export enum ResponseCode {
   RefreshTokenReused = 11006,
   AccessDenied = 11007,
   RateLimitExceeded = 11008,
+  InvalidReturnUrl = 11009,
+  OAuthProviderError = 11010,
 
   // User — 12000+
   UserNotFound = 12000,
@@ -47,6 +53,7 @@ export enum ResponseCode {
   MediaUploadFailed = 14001,
   MediaSizeExceeded = 14002,
   MediaTypeNotAllowed = 14003,
+  MediaInvalidContent = 14004,
 
   // Publish — 15000+
   PublishTaskNotFound = 15000,
@@ -69,6 +76,8 @@ export enum ResponseCode {
   BrandMonitorNotFound = 17006,
   InsightFetchFailed = 17007,
   InsightNotFound = 17008,
+  BrandMentionNotFound = 17009,
+  BrandSentimentClassifyFailed = 17010,
 
   // Agent / extension — 18000+
   AgentOffline = 18000,
@@ -80,6 +89,37 @@ export enum ResponseCode {
 
   // Draft — 19000+
   DraftNotFound = 19000,
+
+  // Credits / Billing — 19100+
+  InsufficientCredits = 19100,
+  StripeWebhookInvalid = 19101,
+  StripeCheckoutFailed = 19102,
+  CreditTransactionDuplicate = 19103,
+
+  // Notification — 20000+
+  NotificationDeliveryFailed = 20000,
+  NotificationTemplateMissing = 20001,
+  EmailVerifyTokenInvalid = 20002,
+  EmailVerifyTokenExpired = 20003,
+
+  // API key — 21000+
+  ApiKeyInvalid = 21000,
+  ApiKeyExpired = 21001,
+  ApiKeyRevoked = 21002,
+  ApiKeyInsufficientScope = 21003,
+  ApiKeyNotFound = 21004,
+  ApiKeyQuotaExceeded = 21005,
+
+  // Concurrency / locking — 22000+
+  ConcurrentRequest = 22000,
+
+  // Workspace (multi-tenant — F-716) — 23000+
+  WorkspaceNotFound = 23000,
+  WorkspaceAccessDenied = 23001,
+  WorkspaceInsufficientRole = 23002,
+  WorkspaceMemberAlreadyExists = 23003,
+  WorkspaceCannotDeletePersonal = 23004,
+  WorkspaceMemberLimitExceeded = 23005,
 }
 
 /** Default message mapping. UI-facing tiếng Việt. */
@@ -99,6 +139,8 @@ export const ResponseMessage: Record<ResponseCode, string> = {
   [ResponseCode.RefreshTokenReused]: 'Phát hiện refresh token đã sử dụng — đã thu hồi toàn bộ phiên',
   [ResponseCode.AccessDenied]: 'Không có quyền truy cập',
   [ResponseCode.RateLimitExceeded]: 'Đã vượt quá giới hạn yêu cầu',
+  [ResponseCode.InvalidReturnUrl]: 'returnUrl không hợp lệ',
+  [ResponseCode.OAuthProviderError]: 'OAuth provider gặp lỗi, vui lòng thử lại',
 
   [ResponseCode.UserNotFound]: 'Không tìm thấy người dùng',
   [ResponseCode.UserSuspended]: 'Tài khoản đã bị tạm khoá',
@@ -111,6 +153,7 @@ export const ResponseMessage: Record<ResponseCode, string> = {
   [ResponseCode.MediaUploadFailed]: 'Upload media thất bại',
   [ResponseCode.MediaSizeExceeded]: 'File vượt quá dung lượng cho phép',
   [ResponseCode.MediaTypeNotAllowed]: 'Định dạng file không được hỗ trợ',
+  [ResponseCode.MediaInvalidContent]: 'Nội dung file không hợp lệ hoặc bị giả mạo',
 
   [ResponseCode.PublishTaskNotFound]: 'Không tìm thấy publish task',
   [ResponseCode.PublishTaskInvalid]: 'Publish task không hợp lệ',
@@ -130,6 +173,8 @@ export const ResponseMessage: Record<ResponseCode, string> = {
   [ResponseCode.BrandMonitorNotFound]: 'Không tìm thấy brand monitor',
   [ResponseCode.InsightFetchFailed]: 'Lấy metric thất bại',
   [ResponseCode.InsightNotFound]: 'Không tìm thấy insight',
+  [ResponseCode.BrandMentionNotFound]: 'Không tìm thấy brand mention',
+  [ResponseCode.BrandSentimentClassifyFailed]: 'Phân loại sentiment thất bại',
 
   [ResponseCode.AgentOffline]: 'Browser agent đang offline',
   [ResponseCode.AgentPairingInvalid]: 'Mã pair không hợp lệ',
@@ -139,4 +184,30 @@ export const ResponseMessage: Record<ResponseCode, string> = {
   [ResponseCode.AgentNotFound]: 'Không tìm thấy browser agent',
 
   [ResponseCode.DraftNotFound]: 'Không tìm thấy bản nháp',
+
+  [ResponseCode.InsufficientCredits]: 'Không đủ credit để thực hiện',
+  [ResponseCode.StripeWebhookInvalid]: 'Stripe webhook không hợp lệ',
+  [ResponseCode.StripeCheckoutFailed]: 'Khởi tạo Stripe checkout thất bại',
+  [ResponseCode.CreditTransactionDuplicate]: 'Giao dịch credit đã được xử lý',
+
+  [ResponseCode.NotificationDeliveryFailed]: 'Gửi thông báo thất bại',
+  [ResponseCode.NotificationTemplateMissing]: 'Template thông báo không tồn tại',
+  [ResponseCode.EmailVerifyTokenInvalid]: 'Link xác minh không hợp lệ',
+  [ResponseCode.EmailVerifyTokenExpired]: 'Link xác minh đã hết hạn',
+
+  [ResponseCode.ApiKeyInvalid]: 'API key không hợp lệ',
+  [ResponseCode.ApiKeyExpired]: 'API key đã hết hạn',
+  [ResponseCode.ApiKeyRevoked]: 'API key đã bị thu hồi',
+  [ResponseCode.ApiKeyInsufficientScope]: 'API key không đủ quyền cho thao tác này',
+  [ResponseCode.ApiKeyNotFound]: 'Không tìm thấy API key',
+  [ResponseCode.ApiKeyQuotaExceeded]: 'API key đã vượt giới hạn request',
+
+  [ResponseCode.ConcurrentRequest]: 'Đang có yêu cầu trùng được xử lý, vui lòng thử lại',
+
+  [ResponseCode.WorkspaceNotFound]: 'Không tìm thấy workspace',
+  [ResponseCode.WorkspaceAccessDenied]: 'Không có quyền truy cập workspace',
+  [ResponseCode.WorkspaceInsufficientRole]: 'Vai trò trong workspace không đủ quyền cho thao tác này',
+  [ResponseCode.WorkspaceMemberAlreadyExists]: 'Thành viên đã có trong workspace',
+  [ResponseCode.WorkspaceCannotDeletePersonal]: 'Không thể xoá personal workspace',
+  [ResponseCode.WorkspaceMemberLimitExceeded]: 'Workspace đã đạt giới hạn thành viên của gói',
 }

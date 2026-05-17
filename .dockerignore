@@ -1,0 +1,47 @@
+node_modules
+**/node_modules
+**/dist
+**/build
+**/.next
+**/.turbo
+**/coverage
+**/.vitest-cache
+**/.cache
+**/playwright-report
+**/test-results
+
+.git
+.github
+.vscode
+.idea
+.claude
+
+# Env (build args injected explicitly)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Logs
+*.log
+logs
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Extension build artifacts
+apps/extension/dist
+apps/extension/*.zip
+
+# Docs / scripts not needed in container
+docs
+infra/certbot/conf
+infra/certbot/www
+infra/monitoring/grafana/data
+*.md
+!apps/*/README.md
+
+# Test
+**/*.spec.ts
+**/*.test.ts

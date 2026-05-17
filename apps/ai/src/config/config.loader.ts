@@ -29,6 +29,15 @@ export function loadConfig(): AppConfig {
         imageProvider: process.env.AI_DEFAULT_IMAGE_PROVIDER || undefined,
       },
     },
+    sentry: {
+      // Ưu tiên SENTRY_DSN_AI nếu set (tách project riêng cho apps/ai),
+      // fallback về SENTRY_DSN dùng chung.
+      dsn: process.env.SENTRY_DSN_AI || process.env.SENTRY_DSN || undefined,
+      environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? 'development',
+      release: process.env.GIT_SHA || undefined,
+      tracesSampleRate: process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1,
+      profilesSampleRate: process.env.SENTRY_PROFILES_SAMPLE_RATE ?? 0.1,
+    },
   }
 
   const parsed = ConfigSchema.safeParse(raw)

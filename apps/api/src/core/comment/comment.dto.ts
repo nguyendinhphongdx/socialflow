@@ -30,3 +30,21 @@ export const MarkCommentDtoSchema = z.object({
 }).strict()
 
 export class MarkCommentDto extends createZodDto(MarkCommentDtoSchema, 'MarkCommentDto') {}
+
+const BulkCommentIdsSchema = z
+  .array(z.string().cuid())
+  .min(1, 'Phải có ít nhất 1 commentId')
+  .max(100, 'Tối đa 100 commentId/request')
+
+export const BulkActionDtoSchema = z.object({
+  commentIds: BulkCommentIdsSchema.describe('Danh sách commentId (≤100)'),
+}).strict()
+
+export class BulkActionDto extends createZodDto(BulkActionDtoSchema, 'BulkActionDto') {}
+
+export const BulkReplyDtoSchema = z.object({
+  commentIds: BulkCommentIdsSchema.describe('Danh sách commentId (≤100)'),
+  replyText: z.string().min(1).max(8000).describe('Nội dung reply áp dụng cho tất cả'),
+}).strict()
+
+export class BulkReplyDto extends createZodDto(BulkReplyDtoSchema, 'BulkReplyDto') {}

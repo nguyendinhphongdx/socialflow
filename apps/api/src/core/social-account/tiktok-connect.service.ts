@@ -8,6 +8,7 @@ import {
 } from '@sociflow/oauth'
 import { APP_CONFIG, type AppConfig } from '../../config'
 import { SocialAccountService } from './social-account.service'
+import { WorkspaceService } from '../workspace/workspace.service'
 
 @Injectable()
 export class TikTokConnectService {
@@ -17,6 +18,7 @@ export class TikTokConnectService {
   constructor(
     private readonly oauth: OAuthService,
     private readonly accountService: SocialAccountService,
+    private readonly workspaceService: WorkspaceService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.provider = createTikTokProviderConfig({
@@ -48,8 +50,16 @@ export class TikTokConnectService {
 
     const user = await fetchTikTokUser(tokens.accessToken)
 
+    // F-716 — workspaceId từ metadata, fallback personal workspace.
+    const workspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
+      || (await this.workspaceService.resolvePersonalWorkspaceId(userId))
+    if (!workspaceId) {
+      throw new AppException(ResponseCode.WorkspaceAccessDenied)
+    }
+
     const account = await this.accountService.saveOAuthTokens({
       userId,
+      workspaceId,
       platform: 'TIKTOK',
       platformUid: user.platformUid,
       displayName: user.displayName,

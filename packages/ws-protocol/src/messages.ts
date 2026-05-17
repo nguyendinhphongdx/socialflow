@@ -42,10 +42,22 @@ export const PingCommandSchema = z.object({
   ts: z.number().int(),
 })
 
+/**
+ * Server push selector update — extension cache vào chrome.storage.local
+ * và reload trên content script khi cần (TTL 24h client side).
+ */
+export const SelectorsUpdateSchema = z.object({
+  type: z.literal('s2a:selectors-update'),
+  platform: AgentPlatformSchema,
+  selectors: z.record(z.string(), z.string()),
+  version: z.number().int().nonnegative(),
+})
+
 export const ServerToAgentMessageSchema = z.discriminatedUnion('type', [
   PublishCommandSchema,
   CancelTaskCommandSchema,
   PingCommandSchema,
+  SelectorsUpdateSchema,
 ])
 
 // ============================================
@@ -57,10 +69,21 @@ export const AckMessageSchema = z.object({
   taskId: z.string(),
 })
 
+/**
+ * Stage values content scripts emit theo flow chuẩn 5 bước:
+ * - `navigate` mở/redirect tới composer URL
+ * - `compose` điền title/body
+ * - `attach-media` gắn ảnh/video
+ * - `submit` click Post / Publish
+ * - `verify` extract platformPostId + workLink
+ *
+ * Để backward-compatible với stub cũ (TikTok dùng 'opening_browser', etc.)
+ * dùng `z.string()` rộng nhưng document canonical values ở đây.
+ */
 export const TaskStatusMessageSchema = z.object({
   type: z.literal('a2s:status'),
   taskId: z.string(),
-  stage: z.string(),                       // 'downloading' | 'opening_browser' | 'uploading' | 'submitting'
+  stage: z.string(),
   progress: z.number().int().min(0).max(100),
 })
 
@@ -108,6 +131,7 @@ export const AgentToServerMessageSchema = z.discriminatedUnion('type', [
 export type PublishCommand = z.infer<typeof PublishCommandSchema>
 export type CancelTaskCommand = z.infer<typeof CancelTaskCommandSchema>
 export type PingCommand = z.infer<typeof PingCommandSchema>
+export type SelectorsUpdate = z.infer<typeof SelectorsUpdateSchema>
 export type ServerToAgentMessage = z.infer<typeof ServerToAgentMessageSchema>
 
 export type AckMessage = z.infer<typeof AckMessageSchema>

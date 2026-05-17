@@ -40,7 +40,8 @@ import { AutomationTaskService } from './automation-task.service'
 @WebSocketGateway({
   namespace: '/agents',
   path: '/socket.io',                        // explicit default
-  cors: { origin: true, credentials: false },
+  // CORS được quản lý bởi `SociflowSocketIoAdapter` (đọc whitelist từ AppConfig).
+  // Không set inline để tránh nhầm lẫn về source-of-truth.
 })
 export class AgentGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(AgentGateway.name)

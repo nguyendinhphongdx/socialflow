@@ -1,6 +1,9 @@
 import { apiClient } from '@/lib/api/client'
 import type { ApiResponse } from '@/lib/api/types'
 import type {
+  BulkActionInput,
+  BulkActionResult,
+  BulkReplyInput,
   Comment,
   CommentListResponse,
   ListCommentsQuery,
@@ -27,5 +30,21 @@ export const inboxService = {
   },
   remove: async (id: string): Promise<void> => {
     await apiClient.delete(`/comments/${id}`)
+  },
+  bulkReply: async (input: BulkReplyInput): Promise<BulkActionResult> => {
+    const { data } = await apiClient.post<ApiResponse<BulkActionResult>>('/comments/bulk/reply', input)
+    return data.data
+  },
+  bulkMarkReplied: async (input: BulkActionInput): Promise<BulkActionResult> => {
+    const { data } = await apiClient.post<ApiResponse<BulkActionResult>>('/comments/bulk/mark-replied', input)
+    return data.data
+  },
+  bulkArchive: async (input: BulkActionInput): Promise<BulkActionResult> => {
+    const { data } = await apiClient.post<ApiResponse<BulkActionResult>>('/comments/bulk/archive', input)
+    return data.data
+  },
+  bulkDelete: async (input: BulkActionInput): Promise<BulkActionResult> => {
+    const { data } = await apiClient.post<ApiResponse<BulkActionResult>>('/comments/bulk/delete', input)
+    return data.data
   },
 }

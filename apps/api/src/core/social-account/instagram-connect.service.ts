@@ -9,6 +9,7 @@ import {
 } from '@sociflow/oauth'
 import { APP_CONFIG, type AppConfig } from '../../config'
 import { SocialAccountService } from './social-account.service'
+import { WorkspaceService } from '../workspace/workspace.service'
 
 interface ConnectResult {
   accountIds: string[]
@@ -24,6 +25,7 @@ export class InstagramConnectService {
   constructor(
     private readonly oauth: OAuthService,
     private readonly accountService: SocialAccountService,
+    private readonly workspaceService: WorkspaceService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.provider = createInstagramProviderConfig({
@@ -61,10 +63,18 @@ export class InstagramConnectService {
 
     const igAccounts = await fetchInstagramAccounts(longLived.accessToken)
 
+    // F-716 — workspaceId từ metadata, fallback personal workspace.
+    const workspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
+      || (await this.workspaceService.resolvePersonalWorkspaceId(userId))
+    if (!workspaceId) {
+      throw new AppException(ResponseCode.WorkspaceAccessDenied)
+    }
+
     const accountIds: string[] = []
     for (const ig of igAccounts) {
       const account = await this.accountService.saveOAuthTokens({
         userId,
+        workspaceId,
         platform: 'INSTAGRAM',
         platformUid: ig.platformUid,
         displayName: ig.displayName,

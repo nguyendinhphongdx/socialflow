@@ -1,0 +1,43 @@
+{
+  "common": {
+    "appName": "Sociflow",
+    "loading": "Đang tải...",
+    "save": "Lưu",
+    "cancel": "Hủy",
+    "delete": "Xóa",
+    "edit": "Sửa",
+    "ok": "OK",
+    "back": "Quay lại",
+    "next": "Tiếp",
+    "submit": "Gửi",
+    "search": "Tìm kiếm",
+    "language": "Ngôn ngữ"
+  },
+  "nav": {
+    "dashboard": "Bảng điều khiển",
+    "compose": "Đăng bài",
+    "calendar": "Lịch",
+    "drafts": "Bản nháp",
+    "accounts": "Tài khoản",
+    "analytics": "Phân tích",
+    "settings": "Cài đặt",
+    "inbox": "Hộp thư",
+    "billing": "Thanh toán"
+  },
+  "auth": {
+    "login": "Đăng nhập",
+    "register": "Đăng ký",
+    "logout": "Đăng xuất",
+    "email": "Email",
+    "password": "Mật khẩu",
+    "forgotPassword": "Quên mật khẩu?",
+    "rememberMe": "Ghi nhớ đăng nhập"
+  },
+  "help": {
+    "title": "Trung tâm trợ giúp",
+    "subtitle": "Hướng dẫn, FAQ và liên hệ hỗ trợ",
+    "gettingStarted": "Bắt đầu",
+    "faq": "Câu hỏi thường gặp",
+    "contact": "Liên hệ"
+  }
+}

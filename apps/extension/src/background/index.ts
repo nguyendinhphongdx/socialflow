@@ -1,11 +1,13 @@
 /// <reference types="chrome" />
 
 /**
- * Service worker entry — Phase 5.
+ * Service worker entry — Phase 5 polish.
  *
  * - Đọc agentToken từ chrome.storage.local → connect WS
  * - Heartbeat mỗi 30s qua chrome.alarms (KHÔNG setInterval — SW có thể bị suspend)
  * - Forward messages từ content scripts lên server
+ * - Install navigation watcher cho redirect detection
+ * - Restore task mappings từ storage.session khi SW cold-start
  */
 
 import { readCredentials } from './storage'
@@ -16,18 +18,49 @@ import {
   sendHeartbeat,
   isConnected,
 } from './ws-client'
-import { removeTask } from './task-dispatcher'
+import {
+  installNavigationWatcher,
+  listOrphanedTasks,
+  removeTask,
+} from './task-dispatcher'
+import { captureAndUpload } from './screenshot'
 
 const HEARTBEAT_ALARM = 'sociflow-heartbeat'
 const HEARTBEAT_PERIOD_MIN = 0.5 // 30s
+
+let navigationWatcherInstalled = false
 
 async function bootstrap(reason: string) {
   console.warn(`[sociflow-agent] bootstrap (${reason})`)
   chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: HEARTBEAT_PERIOD_MIN })
 
+  if (!navigationWatcherInstalled) {
+    installNavigationWatcher()
+    navigationWatcherInstalled = true
+  }
+
   const creds = await readCredentials()
   if (creds) {
     wsConnect(creds)
+  }
+
+  // Sweep orphan tasks — nếu tab đã bị đóng trong lúc SW suspend, báo server
+  // failed để task không kẹt trong PENDING.
+  await sweepOrphanedTasks()
+}
+
+async function sweepOrphanedTasks(): Promise<void> {
+  const orphans = await listOrphanedTasks()
+  for (const item of orphans) {
+    if (item.tabAlive) continue
+    sendToServer({
+      type: 'a2s:failed',
+      taskId: item.taskId,
+      reason: 'tab_closed_during_sw_suspend',
+      recoverable: true,
+      screenshotUrl: null,
+    })
+    await removeTask(item.taskId)
   }
 }
 
@@ -41,7 +74,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === HEARTBEAT_ALARM && isConnected()) {
-    sendHeartbeat()
+    void sendHeartbeat()
   }
 })
 
@@ -88,7 +121,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         platformPostId: message.platformPostId,
         workLink: message.workLink,
       })
-      removeTask(message.taskId)
+      void removeTask(message.taskId)
       return false
     }
 
@@ -100,8 +133,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         recoverable: message.recoverable ?? false,
         screenshotUrl: message.screenshotUrl ?? null,
       })
-      removeTask(message.taskId)
+      void removeTask(message.taskId)
       return false
+    }
+
+    case 'CAPTURE_SCREENSHOT': {
+      void (async () => {
+        const result = await captureAndUpload(message.taskId ?? 'unknown')
+        sendResponse(result)
+      })()
+      return true
     }
 
     default:

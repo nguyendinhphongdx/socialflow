@@ -86,7 +86,7 @@ export class InstagramProvider implements PublishProvider {
   }
 
   private async waitForContainerReady(containerId: string, accessToken: string): Promise<void> {
-    for (let i = 0; i < MAX_CONTAINER_POLL_ATTEMPTS; i++) {
+    for (const _ of Array.from({ length: MAX_CONTAINER_POLL_ATTEMPTS })) {
       const status = await this.getContainerStatus(containerId, accessToken)
       if (status === 'FINISHED') return
       if (status === 'ERROR' || status === 'EXPIRED') {

@@ -3,6 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { inboxService } from '../services/inboxService'
 import type {
+  BulkActionInput,
+  BulkActionResult,
+  BulkReplyInput,
   ListCommentsQuery,
   MarkCommentInput,
   ReplyCommentInput,
@@ -68,6 +71,69 @@ export function useDeleteComment() {
     },
     onError: (err: { message?: string }) => {
       toast.error(err.message ?? 'Xoá comment thất bại')
+    },
+  })
+}
+
+function formatBulkResult(verb: string, r: BulkActionResult): string {
+  if (r.failed === 0) return `Đã ${verb} ${r.succeeded}/${r.total}`
+  return `Đã ${verb} ${r.succeeded}/${r.total} — ${r.failed} thất bại`
+}
+
+export function useBulkReply() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: BulkReplyInput) => inboxService.bulkReply(input),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: inboxKeys.all })
+      const msg = formatBulkResult('reply', result)
+      if (result.failed > 0) toast.warning(msg)
+      else toast.success(msg)
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message ?? 'Bulk reply thất bại')
+    },
+  })
+}
+
+export function useBulkMarkReplied() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: BulkActionInput) => inboxService.bulkMarkReplied(input),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: inboxKeys.all })
+      toast.success(formatBulkResult('mark replied', result))
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message ?? 'Bulk mark thất bại')
+    },
+  })
+}
+
+export function useBulkArchive() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: BulkActionInput) => inboxService.bulkArchive(input),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: inboxKeys.all })
+      toast.success(formatBulkResult('archive', result))
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message ?? 'Bulk archive thất bại')
+    },
+  })
+}
+
+export function useBulkDelete() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: BulkActionInput) => inboxService.bulkDelete(input),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: inboxKeys.all })
+      toast.success(formatBulkResult('xoá', result))
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message ?? 'Bulk xoá thất bại')
     },
   })
 }

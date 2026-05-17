@@ -42,12 +42,76 @@ model User {
   comments      Comment[]
   autoReplyRules AutoReplyRule[]
   brandMonitors BrandMonitor[]
+  brandMentions BrandMention[]
+  creditTransactions CreditTransaction[]
+  notificationLogs NotificationLog[]
+  pushSubscriptions PushSubscription[]
+
+  // Multi-tenant — F-716. Mỗi user có ít nhất 1 personal workspace (auto-created khi register).
+  ownedWorkspaces      Workspace[]       @relation("WorkspaceOwner")
+  workspaceMemberships WorkspaceMember[] @relation("WorkspaceMember")
 
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
   @@index([deletedAt])
+}
+
+// ============================================
+// WORKSPACE (Multi-tenant — F-716)
+// ============================================
+
+/// Workspace = boundary phân quyền + isolation data.
+/// Mỗi user có 1 personal workspace (auto-tạo lúc register, `isPersonal=true`).
+/// User có thể tạo thêm workspace team (`isPersonal=false`) và invite member.
+/// SocialAccount, PublishRecord, Draft, MediaAsset scoped theo workspaceId — F-716.
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  isPersonal  Boolean  @default(true)
+  ownerId     String
+  owner       User     @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+
+  members        WorkspaceMember[]
+  socialAccounts SocialAccount[]
+  publishRecords PublishRecord[]
+  drafts         Draft[]
+  mediaAssets    MediaAsset[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([ownerId])
+  @@index([deletedAt])
+  @@map("workspaces")
+}
+
+/// WorkspaceMember — gán user vào workspace với role hierarchy
+/// (OWNER > ADMIN > EDITOR > VIEWER). Owner luôn có 1 row WorkspaceMember(OWNER)
+/// tương ứng (đồng bộ ownerId của Workspace).
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation("WorkspaceMember", fields: [userId], references: [id])
+  role        WorkspaceRole
+  invitedBy   String?
+  joinedAt    DateTime      @default(now())
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
 }
 
 enum UserRole {
@@ -84,23 +148,28 @@ model Session {
   @@index([expiresAt])
 }
 
-/// API key for 3rd-party access. keyHash = sha256(key). Prefix 8 chars hiển thị.
+/// API key for 3rd-party access. keyHash = sha256(key + pepper). Prefix 16 chars hiển thị.
+/// `scopes` quyết định endpoint nào key được phép gọi (xem ApiKeyScope enum trong code).
 model ApiKey {
   id         String    @id @default(cuid())
   userId     String
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   keyHash    String    @unique
-  prefix     String                // "sf_XXXXXXXX"
+  prefix     String                // "sf_live_XXXXXXXX" hoặc "sf_test_XXXXXXXX"
   name       String
+  scopes     String[]              // string[] for free-form scope (ApiKeyScope enum source of truth in code)
 
   lastUsedAt DateTime?
   expiresAt  DateTime?
   revokedAt  DateTime?
 
   createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([userId])
+  @@index([prefix])
+  @@index([revokedAt])
 }
 
 // ============================================
@@ -113,6 +182,11 @@ model SocialAccount {
   id             String    @id @default(cuid())
   userId         String
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Multi-tenant — F-716. Mọi access đi qua workspaceId (CLS). userId vẫn giữ
+  // để track creator nhưng KHÔNG dùng cho filter ownership ở Service layer.
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
 
   platform       AccountPlatform
   platformUid    String                                  // channel/page/user ID trên platform
@@ -150,6 +224,7 @@ model SocialAccount {
 
   @@unique([userId, platform, platformUid])
   @@index([userId, platform])
+  @@index([workspaceId])
   @@index([status])
   @@index([tokenExpiresAt])
   @@index([deletedAt])
@@ -238,6 +313,10 @@ model MediaAsset {
   userId        String
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Multi-tenant — F-716.
+  workspaceId   String
+  workspace     Workspace    @relation(fields: [workspaceId], references: [id])
+
   type          MediaType
   filename      String
   mimeType      String
@@ -259,6 +338,7 @@ model MediaAsset {
   deletedAt     DateTime?
 
   @@index([userId, type])
+  @@index([workspaceId])
   @@index([status])
   @@index([deletedAt])
 }
@@ -290,6 +370,11 @@ model PublishRecord {
   id              String        @id @default(cuid())
   userId          String
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Multi-tenant — F-716.
+  workspaceId     String
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id])
+
   accountId       String
   account         SocialAccount @relation(fields: [accountId], references: [id])
 
@@ -331,6 +416,7 @@ model PublishRecord {
   deletedAt       DateTime?
 
   @@index([userId, status])
+  @@index([workspaceId])
   @@index([accountId, status])
   @@index([publishTime, status])
   @@index([flowId])
@@ -344,6 +430,10 @@ model Draft {
   userId          String
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Multi-tenant — F-716.
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id])
+
   title           String?
   body            String?   @db.Text
   mediaIds        String[]
@@ -355,6 +445,7 @@ model Draft {
   deletedAt       DateTime?
 
   @@index([userId])
+  @@index([workspaceId])
   @@index([deletedAt])
 }
 
@@ -580,12 +671,53 @@ model BrandMonitor {
   pollIntervalMin Int      @default(60)
   matchCount      Int      @default(0)
 
+  mentions        BrandMention[]
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   deletedAt       DateTime?
 
   @@index([userId, enabled])
   @@index([lastPolledAt, enabled])
+}
+
+/// Brand mention — 1 lần phát hiện keyword trên platform.
+/// Persist từ BrandMonitorService.recordMention (scheduler hoặc manual poll).
+/// Sentiment set async qua BRAND_SENTIMENT queue (apps/ai classify).
+model BrandMention {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monitorId        String
+  monitor          BrandMonitor    @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  platform         AccountPlatform
+  platformPostId   String?                                   // ID post/comment/video trên platform
+  authorName       String?
+  authorPlatformId String?
+
+  text             String          @db.Text
+  permalink        String?
+  postedAt         DateTime?
+  matchedKeywords  String[]        @default([])
+
+  /// "POSITIVE" | "NEGATIVE" | "NEUTRAL" — null = chưa classify.
+  sentiment        String?
+  /// 0-1 confidence từ AI classify.
+  sentimentScore   Float?
+
+  /// "NEW" | "ACKED" | "ARCHIVED"
+  status           String          @default("NEW")
+  metadata         Json?
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([monitorId, platform, platformPostId])
+  @@index([userId, status, createdAt])
+  @@index([monitorId, createdAt])
+  @@index([sentiment])
+  @@map("brand_mentions")
 }
 
 /// Snapshot insight cho 1 PublishRecord — rollup periodic.
@@ -628,4 +760,101 @@ model AccountInsight {
 
   @@unique([accountId, date])
   @@index([accountId, date])
+}
+
+// ============================================
+// CREDITS & BILLING (Phase 7 — Stripe)
+// ============================================
+
+/// Ledger transaction cho aiCredits. Mỗi mutation (grant/consume/refund) tạo 1 row.
+/// `balanceAfter` snapshot user.aiCredits sau khi apply transaction → audit + debug.
+/// `stripeEventId` unique → idempotent đối với Stripe webhook (replay safe).
+model CreditTransaction {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Positive = grant (purchase, bonus, refund-in). Negative = consume / revoke.
+  amount          Int
+  type            CreditTransactionType
+  /// Free-form lý do: "stripe_purchase", "ai_caption", "refund_dispute", "admin_grant", ...
+  reason          String?
+
+  /// Idempotency token từ Stripe (`event.id`). Unique → duplicate event = no-op.
+  stripeEventId   String?  @unique
+  stripeInvoiceId String?
+  metadata        Json?
+
+  /// Snapshot user.aiCredits SAU transaction (sau khi increment/decrement).
+  balanceAfter    Int
+
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type])
+  @@map("credit_transactions")
+}
+
+enum CreditTransactionType {
+  PURCHASE         // mua qua Stripe checkout / invoice payment
+  CONSUME          // AI gen, caption, ... — service trừ credit
+  REFUND           // Stripe charge.refunded → grant lại
+  ADMIN_GRANT      // CLI / ops thủ công cấp
+  ADMIN_REVOKE     // CLI / ops thủ công thu hồi
+  BONUS            // promo / referral / signup
+}
+
+// ============================================
+// NOTIFICATIONS (Phase 7 — F-709)
+// ============================================
+
+/// Log mỗi lần gửi notification (email/push/in-app) — audit + retry tracking.
+/// `status = QUEUED → SENT | FAILED`. Provider id (Resend message id) lưu trong metadata.
+model NotificationLog {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type         NotificationType
+  channel      String                                       // "email" | "push" | "in_app"
+  recipient    String                                       // email address or device token
+  subject      String?
+  templateName String
+  status       String                                       // "QUEUED" | "SENT" | "FAILED"
+  errorMessage String?
+  metadata     Json?
+  sentAt       DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("notification_logs")
+}
+
+enum NotificationType {
+  EMAIL_VERIFY
+  EMAIL_RESET
+  EMAIL_PUBLISH_FAILED
+  EMAIL_CREDIT_LOW
+  EMAIL_ACCOUNT_EXPIRED
+  EMAIL_WELCOME
+}
+
+/// Push subscription cho Web Push API (VAPID).
+/// 1 user có thể có nhiều subscription (mỗi browser/device).
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  endpoint  String   @unique
+  p256dh    String   // public key (base64url)
+  auth      String   // auth secret (base64url)
+  deviceTag String?  // optional label "Macbook Chrome"
+
+  createdAt DateTime  @default(now())
+  lastUsed  DateTime?
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }

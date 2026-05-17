@@ -6,6 +6,8 @@ interface ContextData {
   userId?: string
   sessionId?: string
   traceId?: string
+  workspaceId?: string
+  workspaceRole?: string
 }
 
 /**
@@ -23,6 +25,8 @@ export class RequestContextService {
   get traceId(): string | undefined { return this.cls.get('traceId') }
   get ip(): string | undefined { return this.cls.get('ip') }
   get userAgent(): string | undefined { return this.cls.get('userAgent') }
+  get workspaceId(): string | undefined { return this.cls.get('workspaceId') }
+  get workspaceRole(): string | undefined { return this.cls.get('workspaceRole') }
 
   /**
    * Throw `AuthRequired` nếu chưa có userId trong context.
@@ -34,9 +38,30 @@ export class RequestContextService {
     return id
   }
 
+  /**
+   * Throw `WorkspaceAccessDenied` nếu chưa có workspaceId trong context.
+   * Dùng trong service khi endpoint scope theo workspace (publish, draft, media,
+   * social account). WorkspaceContextGuard set value sau khi verify membership.
+   */
+  requireWorkspaceId(): string {
+    const id = this.workspaceId
+    if (!id) throw new AppException(ResponseCode.WorkspaceAccessDenied)
+    return id
+  }
+
+  /**
+   * Set workspaceId — dùng cho consumer/worker bootstrap khi không có HTTP request,
+   * vd publish.consumer khôi phục context từ job data.
+   */
+  setWorkspaceId(workspaceId: string): void {
+    this.cls.set('workspaceId', workspaceId)
+  }
+
   set(data: ContextData): void {
     if (data.userId !== undefined) this.cls.set('userId', data.userId)
     if (data.sessionId !== undefined) this.cls.set('sessionId', data.sessionId)
     if (data.traceId !== undefined) this.cls.set('traceId', data.traceId)
+    if (data.workspaceId !== undefined) this.cls.set('workspaceId', data.workspaceId)
+    if (data.workspaceRole !== undefined) this.cls.set('workspaceRole', data.workspaceRole)
   }
 }

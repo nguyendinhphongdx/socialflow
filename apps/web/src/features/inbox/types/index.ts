@@ -50,3 +50,19 @@ export interface ReplyCommentInput {
 export interface MarkCommentInput {
   action: CommentMarkAction
 }
+
+export interface BulkActionInput {
+  commentIds: string[]
+}
+
+export interface BulkReplyInput {
+  commentIds: string[]
+  replyText: string
+}
+
+export interface BulkActionResult {
+  total: number
+  succeeded: number
+  failed: number
+  failures: { commentId: string, reason: string }[]
+}

@@ -8,6 +8,7 @@ import {
 } from '@sociflow/oauth'
 import { APP_CONFIG, type AppConfig } from '../../config'
 import { SocialAccountService } from './social-account.service'
+import { WorkspaceService } from '../workspace/workspace.service'
 
 @Injectable()
 export class YouTubeConnectService {
@@ -16,6 +17,7 @@ export class YouTubeConnectService {
   constructor(
     private readonly oauth: OAuthService,
     private readonly accountService: SocialAccountService,
+    private readonly workspaceService: WorkspaceService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.provider = createYouTubeProviderConfig({
@@ -24,7 +26,7 @@ export class YouTubeConnectService {
     })
   }
 
-  async buildAuthorizeUrl(userId: string, opts?: { returnUrl?: string, groupId?: string }) {
+  async buildAuthorizeUrl(userId: string, opts?: { returnUrl?: string, groupId?: string, workspaceId?: string }) {
     return this.oauth.buildAuthorizeUrl({
       provider: this.provider,
       intent: 'CONNECT_ACCOUNT',
@@ -47,8 +49,16 @@ export class YouTubeConnectService {
 
     const channel = await fetchYouTubeChannel(tokens.accessToken)
 
+    // F-716 — workspaceId từ metadata (lưu lúc authorize), fallback personal workspace.
+    const workspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
+      || (await this.workspaceService.resolvePersonalWorkspaceId(userId))
+    if (!workspaceId) {
+      throw new AppException(ResponseCode.WorkspaceAccessDenied)
+    }
+
     const account = await this.accountService.saveOAuthTokens({
       userId,
+      workspaceId,
       platform: 'YOUTUBE',
       platformUid: channel.platformUid,
       displayName: channel.displayName,

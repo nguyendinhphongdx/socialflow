@@ -7,6 +7,7 @@ import { SocialAccountRepository } from './social-account.repository'
 import { SocialAccountService } from './social-account.service'
 import { TokenRefreshConsumer } from './token-refresh.consumer'
 import { TokenRefreshScheduler } from './token-refresh.scheduler'
+import { CredentialLifecycleScheduler } from './credential-lifecycle.scheduler'
 import { YouTubeConnectService } from './youtube-connect.service'
 import { FacebookConnectService } from './facebook-connect.service'
 
@@ -23,7 +24,8 @@ import { FacebookConnectService } from './facebook-connect.service'
     FacebookConnectService,
     TokenRefreshScheduler,
     TokenRefreshConsumer,
+    CredentialLifecycleScheduler,
   ],
-  exports: [SocialAccountService, SocialAccountRepository, YouTubeConnectService, FacebookConnectService],
+  exports: [SocialAccountService, YouTubeConnectService, FacebookConnectService],
 })
 export class SocialAccountModule {}

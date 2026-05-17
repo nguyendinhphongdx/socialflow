@@ -1,7 +1,8 @@
 import { Body, Controller, Inject, Post, Req, Res } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
+import { Throttle } from '@nestjs/throttler'
 import type { Request, Response } from 'express'
-import { ApiDoc, AppException, Public, ResponseCode } from '@sociflow/common'
+import { ApiDoc, AppException, CurrentUser, type AuthUser, Public, ResponseCode } from '@sociflow/common'
 import { clearAuthCookies, setAuthCookies, type AuthCookieConfig } from '@sociflow/auth'
 import { AuthService } from './auth.service'
 import { LoginDto, RegisterDto } from './auth.dto'
@@ -18,6 +19,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiDoc({ summary: 'Đăng ký tài khoản', body: RegisterDto, response: AuthResultVo })
   @Post('/register')
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
@@ -27,6 +29,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiDoc({ summary: 'Đăng nhập', body: LoginDto, response: AuthResultVo })
   @Post('/login')
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
@@ -36,6 +39,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiDoc({ summary: 'Refresh access + refresh token (single-use rotation)' })
   @Post('/refresh')
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
@@ -58,6 +62,27 @@ export class AuthController {
     await this.auth.logout(fromCookie ?? fromBody)
     clearAuthCookies(res, this.cookieConfig())
     return { ok: true }
+  }
+
+  /**
+   * F-713 — Data deletion request (Meta App Review requirement).
+   * Soft-delete user → hard delete sau 30 ngày qua cron. Idempotent.
+   */
+  @Throttle({ default: { limit: 3, ttl: 3600_000 } }) // 3 lần / giờ — chống nhầm
+  @ApiDoc({ summary: 'Request permanent data deletion (Meta App Review compliance)' })
+  @Post('/data-deletion')
+  async requestDataDeletion(
+    @CurrentUser() user: AuthUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { confirmationCode } = await this.auth.requestDataDeletion(user.id)
+    clearAuthCookies(res, this.cookieConfig())
+    return {
+      ok: true,
+      confirmationCode,
+      message: 'Yêu cầu xoá dữ liệu đã ghi nhận. Tài khoản sẽ bị xoá vĩnh viễn sau 30 ngày.',
+      hardDeleteAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
+    }
   }
 
   private cookieConfig(): AuthCookieConfig {

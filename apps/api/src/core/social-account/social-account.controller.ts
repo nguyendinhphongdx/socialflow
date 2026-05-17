@@ -1,7 +1,7 @@
 import { Controller, Delete, Get, Inject, Param, Query, Res } from '@nestjs/common'
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import type { Response } from 'express'
-import { ApiDoc, AppException, CurrentUser, type AuthUser, Public, ResponseCode } from '@sociflow/common'
+import { ApiDoc, AppException, CurrentUser, type AuthUser, Public, ResponseCode, validateReturnUrl } from '@sociflow/common'
 import { APP_CONFIG, type AppConfig } from '../../config'
 import {
   ListSocialAccountDto,
@@ -71,8 +71,11 @@ export class SocialAccountController {
     @Query() query: ConnectYouTubeDto,
     @Res() res: Response,
   ) {
+    const safeReturnUrl = query.returnUrl
+      ? validateReturnUrl(query.returnUrl, this.config.web.appUrl)
+      : undefined
     const url = await this.youtube.buildAuthorizeUrl(user.id, {
-      returnUrl: query.returnUrl,
+      returnUrl: safeReturnUrl,
       groupId: query.groupId,
     })
     return res.redirect(url)
@@ -94,7 +97,10 @@ export class SocialAccountController {
       throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'missing_code_or_state' })
     }
     const result = await this.youtube.handleCallback(code, state)
-    const target = result.returnUrl ?? `${this.config.web.appUrl}/dashboard/accounts?connected=${result.account.id}`
+    const fallback = `${this.config.web.appUrl}/dashboard/accounts?connected=${result.account.id}`
+    const target = result.returnUrl
+      ? validateReturnUrl(result.returnUrl, this.config.web.appUrl)
+      : fallback
     return res.redirect(target)
   }
 
@@ -108,8 +114,11 @@ export class SocialAccountController {
     @Query() query: ConnectYouTubeDto,
     @Res() res: Response,
   ) {
+    const safeReturnUrl = query.returnUrl
+      ? validateReturnUrl(query.returnUrl, this.config.web.appUrl)
+      : undefined
     const url = await this.facebook.buildAuthorizeUrl(user.id, {
-      returnUrl: query.returnUrl,
+      returnUrl: safeReturnUrl,
       groupId: query.groupId,
     })
     return res.redirect(url)
@@ -131,7 +140,10 @@ export class SocialAccountController {
       throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'missing_code_or_state' })
     }
     const result = await this.facebook.handleCallback(code, state)
-    const target = result.returnUrl ?? `${this.config.web.appUrl}/dashboard/accounts?connected=${result.pageCount}_pages`
+    const fallback = `${this.config.web.appUrl}/dashboard/accounts?connected=${result.pageCount}_pages`
+    const target = result.returnUrl
+      ? validateReturnUrl(result.returnUrl, this.config.web.appUrl)
+      : fallback
     return res.redirect(target)
   }
 
@@ -145,8 +157,11 @@ export class SocialAccountController {
     @Query() query: ConnectYouTubeDto,
     @Res() res: Response,
   ) {
+    const safeReturnUrl = query.returnUrl
+      ? validateReturnUrl(query.returnUrl, this.config.web.appUrl)
+      : undefined
     const url = await this.instagram.buildAuthorizeUrl(user.id, {
-      returnUrl: query.returnUrl,
+      returnUrl: safeReturnUrl,
       groupId: query.groupId,
     })
     return res.redirect(url)
@@ -168,7 +183,10 @@ export class SocialAccountController {
       throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'missing_code_or_state' })
     }
     const result = await this.instagram.handleCallback(code, state)
-    const target = result.returnUrl ?? `${this.config.web.appUrl}/dashboard/accounts?connected=${result.count}_ig`
+    const fallback = `${this.config.web.appUrl}/dashboard/accounts?connected=${result.count}_ig`
+    const target = result.returnUrl
+      ? validateReturnUrl(result.returnUrl, this.config.web.appUrl)
+      : fallback
     return res.redirect(target)
   }
 }

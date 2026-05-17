@@ -19,10 +19,14 @@ export function loadConfig(): AppConfig {
     auth: {
       jwtAccessSecret: process.env.JWT_ACCESS_SECRET,
       jwtRefreshSecret: process.env.JWT_REFRESH_SECRET,
+      jwtAgentSecret: process.env.JWT_AGENT_SECRET,
       jwtAccessExpiration: process.env.JWT_ACCESS_EXPIRATION,
       jwtRefreshExpiration: process.env.JWT_REFRESH_EXPIRATION,
       accessCookieName: process.env.ACCESS_COOKIE_NAME,
       refreshCookieName: process.env.REFRESH_COOKIE_NAME,
+    },
+    webhook: {
+      facebookVerifyToken: process.env.FACEBOOK_WEBHOOK_VERIFY_TOKEN,
     },
     encryption: { key: process.env.ENCRYPTION_KEY },
     internal: { token: process.env.INTERNAL_TOKEN },
@@ -76,6 +80,36 @@ export function loadConfig(): AppConfig {
       wsUrl: process.env.AGENT_WS_URL ?? 'ws://localhost:3000',
       pairCodeTtlSec: process.env.AGENT_PAIR_CODE_TTL_SEC ?? 300,
       tokenExpiration: process.env.AGENT_TOKEN_EXPIRATION ?? '365d',
+    },
+    sentry: {
+      dsn: process.env.SENTRY_DSN || undefined,
+      environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? 'development',
+      release: process.env.GIT_SHA || undefined,
+      tracesSampleRate: process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1,
+      profilesSampleRate: process.env.SENTRY_PROFILES_SAMPLE_RATE ?? 0.1,
+    },
+    stripe: {
+      secretKey: process.env.STRIPE_SECRET_KEY ?? 'sk_test_placeholder',
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_placeholder',
+      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? 'pk_test_placeholder',
+      pricePerCredit: process.env.STRIPE_PRICE_PER_CREDIT ?? 1000,
+      planPriceIds: {
+        pro: process.env.STRIPE_PRICE_ID_PRO ?? '',
+        business: process.env.STRIPE_PRICE_ID_BUSINESS ?? '',
+        enterprise: process.env.STRIPE_PRICE_ID_ENTERPRISE ?? '',
+      },
+      successUrl: process.env.STRIPE_SUCCESS_URL ?? `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3020'}/billing?status=success`,
+      cancelUrl: process.env.STRIPE_CANCEL_URL ?? `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3020'}/billing?status=cancel`,
+    },
+    notification: {
+      resendApiKey: process.env.RESEND_API_KEY ?? '',
+      fromEmail: process.env.NOTIFICATION_FROM_EMAIL ?? 'no-reply@sociflow.io',
+      fromName: process.env.NOTIFICATION_FROM_NAME ?? 'Sociflow',
+      appUrl: process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3020',
+      creditLowThreshold: process.env.NOTIFICATION_CREDIT_LOW_THRESHOLD ?? 20,
+      vapidPublicKey: process.env.NOTIFICATION_VAPID_PUBLIC_KEY ?? '',
+      vapidPrivateKey: process.env.NOTIFICATION_VAPID_PRIVATE_KEY ?? '',
+      vapidSubject: process.env.NOTIFICATION_VAPID_SUBJECT ?? 'mailto:admin@sociflow.io',
     },
   }
 

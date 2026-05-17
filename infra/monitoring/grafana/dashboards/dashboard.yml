@@ -1,0 +1,13 @@
+# Grafana dashboard provider — picks up JSON dashboards from this folder.
+apiVersion: 1
+
+providers:
+  - name: Sociflow
+    orgId: 1
+    folder: Sociflow
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

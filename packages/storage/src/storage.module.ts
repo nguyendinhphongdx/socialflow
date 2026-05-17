@@ -4,7 +4,7 @@ import type { StorageConfig } from './types'
 
 interface StorageModuleAsyncOptions {
   inject?: unknown[]
-  useFactory: (...args: unknown[]) => StorageConfig | Promise<StorageConfig>
+  useFactory: (...args: any[]) => StorageConfig | Promise<StorageConfig>
 }
 
 @Global()

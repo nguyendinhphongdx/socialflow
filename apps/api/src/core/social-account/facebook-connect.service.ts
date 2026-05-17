@@ -9,6 +9,7 @@ import {
 } from '@sociflow/oauth'
 import { APP_CONFIG, type AppConfig } from '../../config'
 import { SocialAccountService } from './social-account.service'
+import { WorkspaceService } from '../workspace/workspace.service'
 
 interface ConnectResult {
   accountIds: string[]
@@ -24,6 +25,7 @@ export class FacebookConnectService {
   constructor(
     private readonly oauth: OAuthService,
     private readonly accountService: SocialAccountService,
+    private readonly workspaceService: WorkspaceService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.provider = createFacebookProviderConfig({
@@ -73,10 +75,18 @@ export class FacebookConnectService {
       })
     }
 
+    // F-716 — workspaceId từ metadata, fallback personal workspace.
+    const workspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
+      || (await this.workspaceService.resolvePersonalWorkspaceId(userId))
+    if (!workspaceId) {
+      throw new AppException(ResponseCode.WorkspaceAccessDenied)
+    }
+
     const accountIds: string[] = []
     for (const page of pages) {
       const account = await this.accountService.saveOAuthTokens({
         userId,
+        workspaceId,
         platform: 'FACEBOOK',
         platformUid: page.platformUid,
         displayName: page.displayName,

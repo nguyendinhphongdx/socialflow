@@ -1,9 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common'
-import type { AccountPlatform, BrandMonitor } from '@prisma/client'
-import { AppException, ResponseCode, type PaginationDto } from '@sociflow/common'
+import { InjectQueue } from '@nestjs/bullmq'
+import { EventEmitter2 } from '@nestjs/event-emitter'
+import type { Queue } from 'bullmq'
+import type { AccountPlatform, BrandMention, BrandMonitor } from '@prisma/client'
+import { AppException, ResponseCode, type Paginated, type PaginationDto } from '@sociflow/common'
 import { RequestContextService } from '@sociflow/auth'
+import { QUEUE_NAMES } from '../../libs/queue/queue.module'
 import { BrandMonitorRepository } from './brand-monitor.repository'
+import { BrandMentionRepository, type ListBrandMentionFilter } from './brand-mention.repository'
 import type { CreateBrandMonitorDto, UpdateBrandMonitorDto } from './brand-monitor.dto'
+import {
+  BRAND_MENTION_DETECTED_EVENT,
+  BRAND_SENTIMENT_JOB_NAME,
+  type BrandMentionDetectedEvent,
+  type BrandSentimentJob,
+} from './brand-monitor.constants'
 
 interface PlatformMatchResult {
   platform: AccountPlatform
@@ -19,14 +30,31 @@ export interface PollResult {
   warnings: string[]
 }
 
+export interface RecordMentionInput {
+  monitorId: string
+  platform: AccountPlatform
+  platformPostId?: string | null
+  authorName?: string | null
+  authorPlatformId?: string | null
+  text: string
+  permalink?: string | null
+  postedAt?: Date | null
+  matchedKeywords: string[]
+}
+
 @Injectable()
 export class BrandMonitorService {
   private readonly logger = new Logger(BrandMonitorService.name)
 
   constructor(
     private readonly repo: BrandMonitorRepository,
+    private readonly mentionRepo: BrandMentionRepository,
     private readonly ctx: RequestContextService,
+    private readonly events: EventEmitter2,
+    @InjectQueue(QUEUE_NAMES.BRAND_SENTIMENT) private readonly sentimentQueue: Queue<BrandSentimentJob>,
   ) {}
+
+  // ---- BrandMonitor CRUD ----
 
   async listByCurrentUser(pagination: PaginationDto, filter?: { enabled?: boolean }) {
     const userId = this.ctx.requireUserId()
@@ -68,6 +96,8 @@ export class BrandMonitorService {
     await this.repo.softDeleteById(entity.id)
   }
 
+  // ---- Poll ----
+
   /**
    * Manual trigger từ controller — kiểm tra ownership trước.
    */
@@ -100,8 +130,8 @@ export class BrandMonitorService {
 
   /**
    * Poll core: chạy search cho từng platform → aggregate match count.
-   * Phase 6: search API là stub vì TT/IG cần app review, FB Graph search deprecated.
-   * Persist matches deferred (cần BrandMention table — Phase 7).
+   * Phase 6: search API là stub (TT/IG cần app review, FB Graph search deprecated).
+   * Khi provider trả mentions thật → call `recordMention` để persist + enqueue sentiment.
    */
   private async pollMonitor(monitor: BrandMonitor): Promise<PollResult> {
     const polledAt = new Date()
@@ -136,13 +166,12 @@ export class BrandMonitorService {
 
   /**
    * Stub search per platform. Real implementation cần API key + app review:
-   * - YOUTUBE: Search.list (quota-heavy, 100 unit / req)
-   * - FACEBOOK: Graph search deprecated từ 2018, chỉ còn search trong page user own
-   * - INSTAGRAM: Graph hashtag-search yêu cầu app review + business approval
-   * - TIKTOK: Research API yêu cầu academic / business approval
+   *  - YOUTUBE: Search.list (quota-heavy, 100 unit / req)
+   *  - FACEBOOK: Graph search deprecated từ 2018
+   *  - INSTAGRAM: Graph hashtag-search yêu cầu app review
+   *  - TIKTOK: Research API yêu cầu approval
    *
-   * Phase 6 return 0 matches + warning. Persist match deferred (cần migrate
-   * BrandMention table riêng — Comment table không phù hợp vì require accountId).
+   * Khi switch sang provider thật, mỗi raw post match → gọi `recordMention`.
    */
   private async searchPlatform(platform: AccountPlatform, _query: string): Promise<PlatformMatchResult> {
     return {
@@ -150,5 +179,91 @@ export class BrandMonitorService {
       matches: 0,
       warning: 'search_api_not_implemented_phase_6',
     }
+  }
+
+  // ---- Mention persist + sentiment ----
+
+  /**
+   * Persist 1 mention idempotent + enqueue sentiment job.
+   *
+   * Idempotency: unique `(monitorId, platform, platformPostId)`. Replay job
+   * an toàn — không double-count, không double-classify (consumer cũng skip
+   * khi sentiment đã set).
+   *
+   * Emit `brand.mention.detected` chỉ khi insert lần đầu (`isNew`).
+   */
+  async recordMention(input: RecordMentionInput): Promise<BrandMention> {
+    const monitor = await this.repo.getById(input.monitorId)
+    if (!monitor || monitor.deletedAt) {
+      throw new AppException(ResponseCode.BrandMonitorNotFound, { monitorId: input.monitorId })
+    }
+
+    const { mention, isNew } = await this.mentionRepo.upsertByPlatformPostId({
+      userId: monitor.userId,
+      monitorId: monitor.id,
+      platform: input.platform,
+      platformPostId: input.platformPostId,
+      authorName: input.authorName,
+      authorPlatformId: input.authorPlatformId,
+      text: input.text,
+      permalink: input.permalink,
+      postedAt: input.postedAt,
+      matchedKeywords: input.matchedKeywords,
+    })
+
+    if (isNew) {
+      const payload: BrandMentionDetectedEvent = {
+        mentionId: mention.id,
+        monitorId: monitor.id,
+        userId: monitor.userId,
+        text: mention.text,
+        platform: input.platform,
+      }
+      this.events.emit(BRAND_MENTION_DETECTED_EVENT, payload)
+
+      if (!mention.sentiment) {
+        await this.sentimentQueue.add(
+          BRAND_SENTIMENT_JOB_NAME,
+          { mentionId: mention.id, text: mention.text },
+          { jobId: `sentiment-${mention.id}` },
+        )
+      }
+      this.logger.log(
+        `Recorded mention ${mention.id} for monitor ${monitor.id} on ${input.platform} → sentiment job queued`,
+      )
+    }
+
+    return mention
+  }
+
+  // ---- Mention queries ----
+
+  async listMentionsByCurrentUser(
+    pagination: PaginationDto,
+    filter?: ListBrandMentionFilter,
+  ): Promise<Paginated<BrandMention>> {
+    const userId = this.ctx.requireUserId()
+    if (filter?.monitorId) {
+      // Verify ownership của monitor trước khi list
+      await this.getByCurrentUserAndId(filter.monitorId)
+    }
+    return this.mentionRepo.listByUserWithPagination(userId, pagination, filter)
+  }
+
+  async getMentionByCurrentUserAndId(id: string): Promise<BrandMention> {
+    const userId = this.ctx.requireUserId()
+    const mention = await this.mentionRepo.getByIdAndUserId(id, userId)
+    if (!mention) throw new AppException(ResponseCode.BrandMentionNotFound, { mentionId: id })
+    return mention
+  }
+
+  async ackMention(id: string): Promise<BrandMention> {
+    const mention = await this.getMentionByCurrentUserAndId(id)
+    return this.mentionRepo.updateStatusById(mention.id, 'ACKED')
+  }
+
+  async archiveMention(id: string): Promise<BrandMention> {
+    const mention = await this.getMentionByCurrentUserAndId(id)
+    return this.mentionRepo.updateStatusById(mention.id, 'ARCHIVED')
   }
 }

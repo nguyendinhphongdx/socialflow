@@ -1,7 +1,7 @@
 import { Controller, Get, Inject, Query, Res } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import type { Response } from 'express'
-import { ApiDoc, AppException, Public, ResponseCode } from '@sociflow/common'
+import { ApiDoc, AppException, Public, ResponseCode, validateReturnUrl } from '@sociflow/common'
 import { clearAuthCookies, setAuthCookies, type AuthCookieConfig } from '@sociflow/auth'
 import { APP_CONFIG, type AppConfig } from '../../config'
 import { GoogleAuthService } from './google-auth.service'
@@ -18,7 +18,8 @@ export class GoogleAuthController {
   @ApiDoc({ summary: 'Redirect tới Google OAuth consent screen' })
   @Get('/')
   async start(@Query('returnUrl') returnUrl: string | undefined, @Res() res: Response) {
-    const url = await this.google.buildAuthorizeUrl(returnUrl)
+    const safeReturnUrl = returnUrl ? validateReturnUrl(returnUrl, this.config.web.appUrl) : undefined
+    const url = await this.google.buildAuthorizeUrl(safeReturnUrl)
     return res.redirect(url)
   }
 
@@ -42,7 +43,12 @@ export class GoogleAuthController {
     const result = await this.google.handleCallback(code, state)
     setAuthCookies(res, result.tokens, this.cookieConfig())
 
-    const target = result.returnUrl ?? `${this.config.web.appUrl}/dashboard`
+    // Re-validate returnUrl một lần nữa khi resolve từ DB metadata — phòng case
+    // attacker tự inject state row (defense-in-depth nếu OAuthState bị leak).
+    const fallback = `${this.config.web.appUrl}/dashboard`
+    const target = result.returnUrl
+      ? validateReturnUrl(result.returnUrl, this.config.web.appUrl)
+      : fallback
     return res.redirect(target)
   }
 

@@ -5,51 +5,72 @@
  *
  * - Open tab cho upload URL của platform
  * - Wait load complete → send command tới content script
- * - Track mapping taskId → tabId in-memory (sẽ mất khi SW restart — Phase 5 acceptable)
+ * - Persist mapping taskId→tabId qua chrome.storage.session (survive SW restart)
+ * - Listen chrome.webNavigation: nếu tab redirect khỏi platform domain →
+ *   mark `redirected: true` và emit a2s:status `redirected`
  */
 
-import type { PublishCommand } from '@sociflow/ws-protocol'
+import type { PublishCommand, AgentPlatform } from '@sociflow/ws-protocol'
+import {
+  getTask,
+  getTaskByTab,
+  listTasks,
+  markRedirected,
+  putTask,
+  removeTaskMapping,
+} from '../shared/task-storage'
 
-interface TaskTabMapping {
-  tabId: number
-  taskId: string
-  platform: PublishCommand['platform']
-  startedAt: number
-}
-
-const taskTabs = new Map<string, TaskTabMapping>()
-
-const UPLOAD_URLS: Record<PublishCommand['platform'], string> = {
+const UPLOAD_URLS: Record<AgentPlatform, string> = {
   TIKTOK: 'https://www.tiktok.com/upload',
   FACEBOOK: 'https://www.facebook.com/',
   INSTAGRAM: 'https://www.instagram.com/',
-  YOUTUBE: 'https://studio.youtube.com/channel/UC/videos/upload',
+  YOUTUBE: 'https://studio.youtube.com/',
+}
+
+/**
+ * Host pattern hợp lệ cho từng platform — dùng để phát hiện redirect.
+ */
+const PLATFORM_HOSTS: Record<AgentPlatform, RegExp> = {
+  TIKTOK: /(^|\.)tiktok\.com$/,
+  FACEBOOK: /(^|\.)facebook\.com$/,
+  INSTAGRAM: /(^|\.)instagram\.com$/,
+  YOUTUBE: /(^|\.)(youtube\.com|google\.com)$/,
+}
+
+type RedirectNotifier = (taskId: string, url: string) => void
+let redirectNotifier: RedirectNotifier | null = null
+
+export function setRedirectNotifier(fn: RedirectNotifier): void {
+  redirectNotifier = fn
 }
 
 function waitForTabLoaded(tabId: number, timeoutMs = 30_000): Promise<void> {
   return new Promise((resolve, reject) => {
-    const start = Date.now()
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const cleanup = () => {
+      chrome.tabs.onUpdated.removeListener(listener)
+      if (timer) clearTimeout(timer)
+    }
+
     const listener = (updatedTabId: number, info: chrome.tabs.TabChangeInfo) => {
       if (updatedTabId === tabId && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener)
+        cleanup()
         resolve()
       }
     }
+
     chrome.tabs.onUpdated.addListener(listener)
 
-    const timer = setInterval(() => {
-      if (Date.now() - start > timeoutMs) {
-        clearInterval(timer)
-        chrome.tabs.onUpdated.removeListener(listener)
-        reject(new Error('tab load timeout'))
-      }
-    }, 1000)
+    timer = setTimeout(() => {
+      cleanup()
+      reject(new Error('tab load timeout'))
+    }, timeoutMs)
 
     // Check current state in case it loaded between listener attach.
     chrome.tabs.get(tabId).then((tab) => {
       if (tab.status === 'complete') {
-        clearInterval(timer)
-        chrome.tabs.onUpdated.removeListener(listener)
+        cleanup()
         resolve()
       }
     }).catch(() => {})
@@ -67,9 +88,9 @@ export async function dispatchPublish(command: PublishCommand): Promise<void> {
     throw new Error('Failed to open tab')
   }
 
-  taskTabs.set(command.taskId, {
-    tabId: tab.id,
+  await putTask({
     taskId: command.taskId,
+    tabId: tab.id,
     platform: command.platform,
     startedAt: Date.now(),
   })
@@ -83,7 +104,7 @@ export async function dispatchPublish(command: PublishCommand): Promise<void> {
 }
 
 export async function cancelTask(taskId: string): Promise<void> {
-  const mapping = taskTabs.get(taskId)
+  const mapping = await getTask(taskId)
   if (!mapping) return
 
   try {
@@ -91,18 +112,69 @@ export async function cancelTask(taskId: string): Promise<void> {
     await chrome.tabs.remove(mapping.tabId).catch(() => {})
   }
   finally {
-    taskTabs.delete(taskId)
+    await removeTaskMapping(taskId)
   }
 }
 
-export function removeTask(taskId: string): void {
-  const mapping = taskTabs.get(taskId)
+export async function removeTask(taskId: string): Promise<void> {
+  const mapping = await removeTaskMapping(taskId)
   if (!mapping) return
-  // Close tab after task done — keep optional, may want to keep for inspection.
+  // Close tab after task done — optional, leave open if user might want to inspect.
   chrome.tabs.remove(mapping.tabId).catch(() => {})
-  taskTabs.delete(taskId)
 }
 
-export function getActiveTabsCount(): number {
-  return taskTabs.size
+export async function getActiveTabsCount(): Promise<number> {
+  const all = await listTasks()
+  return all.length
+}
+
+/**
+ * Restore listener cho webNavigation — nếu user/tab redirect khỏi platform
+ * domain (vd phishing redirect, login wall), mark task redirected.
+ */
+export function installNavigationWatcher(): void {
+  chrome.webNavigation.onCommitted.addListener(async (details) => {
+    if (details.frameId !== 0) return // chỉ care top frame
+    const mapping = await getTaskByTab(details.tabId)
+    if (!mapping || mapping.redirected) return
+
+    const host = safeHost(details.url)
+    if (!host) return
+    const pattern = PLATFORM_HOSTS[mapping.platform]
+    if (pattern.test(host)) return // vẫn ở platform OK
+
+    await markRedirected(mapping.taskId)
+    redirectNotifier?.(mapping.taskId, details.url)
+  })
+
+  // Cleanup khi tab bị đóng
+  chrome.tabs.onRemoved.addListener(async (tabId) => {
+    const mapping = await getTaskByTab(tabId)
+    if (!mapping) return
+    await removeTaskMapping(mapping.taskId)
+  })
+}
+
+function safeHost(url: string): string | null {
+  try {
+    return new URL(url).host
+  }
+  catch {
+    return null
+  }
+}
+
+/**
+ * Khi service worker cold-start, các task pending còn trong storage.session.
+ * Trả về danh sách để index.ts decide có cần emit `failed` cho server biết
+ * task đã orphan (tab có thể đã closed trong lúc SW suspended).
+ */
+export async function listOrphanedTasks(): Promise<{ taskId: string, tabAlive: boolean }[]> {
+  const tasks = await listTasks()
+  const results: { taskId: string, tabAlive: boolean }[] = []
+  for (const task of tasks) {
+    const tabAlive = await chrome.tabs.get(task.tabId).then(() => true).catch(() => false)
+    results.push({ taskId: task.taskId, tabAlive })
+  }
+  return results
 }

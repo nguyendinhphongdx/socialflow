@@ -108,6 +108,14 @@ export class SessionRepository {
     })
   }
 
+  /** Revoke session theo sessionId (lấy từ JWT payload). */
+  async revokeBySessionId(sessionId: string): Promise<void> {
+    await this.prisma.session.updateMany({
+      where: { id: sessionId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+  }
+
   /** Revoke tất cả session của user — incident response, replay detected. */
   async revokeAllByUserId(userId: string): Promise<number> {
     const result = await this.prisma.session.updateMany({
