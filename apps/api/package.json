@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
+    "dev": "node --env-file=../../.env --import @swc-node/register/esm-register --watch src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "cli": "tsx src/cli/cli.ts",
@@ -47,6 +47,7 @@
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.0.0",
     "cookie-parser": "^1.4.6",
+    "express": "^5.2.1",
     "file-type": "^22.0.1",
     "helmet": "^7.2.0",
     "ioredis": "^5.4.0",
@@ -73,6 +74,8 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@swc-node/register": "^1.11.1",
+    "@swc/core": "^1.15.33",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.0",
     "@types/express": "^5.0.0",

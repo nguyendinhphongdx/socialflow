@@ -10,6 +10,8 @@ import { TokenRefreshScheduler } from './token-refresh.scheduler'
 import { CredentialLifecycleScheduler } from './credential-lifecycle.scheduler'
 import { YouTubeConnectService } from './youtube-connect.service'
 import { FacebookConnectService } from './facebook-connect.service'
+import { InstagramConnectService } from './instagram-connect.service'
+import { TikTokConnectService } from './tiktok-connect.service'
 
 @Module({
   imports: [
@@ -22,10 +24,12 @@ import { FacebookConnectService } from './facebook-connect.service'
     SocialAccountRepository,
     YouTubeConnectService,
     FacebookConnectService,
+    InstagramConnectService,
+    TikTokConnectService,
     TokenRefreshScheduler,
     TokenRefreshConsumer,
     CredentialLifecycleScheduler,
   ],
-  exports: [SocialAccountService, YouTubeConnectService, FacebookConnectService],
+  exports: [SocialAccountService, YouTubeConnectService, FacebookConnectService, InstagramConnectService, TikTokConnectService],
 })
 export class SocialAccountModule {}

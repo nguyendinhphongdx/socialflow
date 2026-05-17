@@ -1,18 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import createIntlMiddleware from 'next-intl/middleware'
-import { defaultLocale, locales } from './i18n/config'
 
 const SESSION_COOKIE = process.env.NEXT_PUBLIC_SESSION_COOKIE ?? 'sf_access'
 
-// next-intl với `localePrefix: 'never'` — không inject prefix vào URL, chỉ
-// negotiate locale qua cookie/header. Cookie `NEXT_LOCALE` set bởi
-// LanguageSwitcher, fallback `defaultLocale`.
-const intlMiddleware = createIntlMiddleware({
-  locales: [...locales],
-  defaultLocale,
-  localePrefix: 'never',
-})
-
+// i18n locale negotiate qua cookie `NEXT_LOCALE` trong `i18n/request.ts` —
+// KHÔNG dùng next-intl URL rewrite middleware (app routes không có [locale]
+// segment). LanguageSwitcher set cookie, getRequestConfig đọc cookie.
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const requiresAuth = pathname.startsWith('/dashboard')
@@ -28,7 +20,7 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  return intlMiddleware(req)
+  return NextResponse.next()
 }
 
 export const config = {

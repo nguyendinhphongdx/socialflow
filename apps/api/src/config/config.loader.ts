@@ -98,8 +98,8 @@ export function loadConfig(): AppConfig {
         business: process.env.STRIPE_PRICE_ID_BUSINESS ?? '',
         enterprise: process.env.STRIPE_PRICE_ID_ENTERPRISE ?? '',
       },
-      successUrl: process.env.STRIPE_SUCCESS_URL ?? `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3020'}/billing?status=success`,
-      cancelUrl: process.env.STRIPE_CANCEL_URL ?? `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3020'}/billing?status=cancel`,
+      successUrl: process.env.STRIPE_SUCCESS_URL || `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3020'}/billing?status=success`,
+      cancelUrl: process.env.STRIPE_CANCEL_URL || `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3020'}/billing?status=cancel`,
     },
     notification: {
       resendApiKey: process.env.RESEND_API_KEY ?? '',
