@@ -28,7 +28,7 @@
     "@tiptap/core": "^2.10.0",
     "@tiptap/extension-link": "^2.10.0",
     "@tiptap/extension-placeholder": "^2.10.0",
-    "@tiptap/pm": "^2.10.0",
+    "@tiptap/pm": "^3.23.4",
     "@tiptap/react": "^2.10.0",
     "@tiptap/starter-kit": "^2.10.0",
     "axios": "^1.7.0",
