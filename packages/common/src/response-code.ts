@@ -17,6 +17,7 @@
  * - 19200+      : module-specific (allocate khi cần)
  * - 22000+      : concurrency / distributed lock
  * - 23000+      : workspace (multi-tenant F-716)
+ * - 24000+      : BYOK credentials (ADR-0010) — OAuth + AI provider keys
  */
 export enum ResponseCode {
   Success = 0,
@@ -120,6 +121,21 @@ export enum ResponseCode {
   WorkspaceMemberAlreadyExists = 23003,
   WorkspaceCannotDeletePersonal = 23004,
   WorkspaceMemberLimitExceeded = 23005,
+
+  // BYOK credentials (ADR-0010) — 24000+
+  OAuthCredentialNotConfigured = 24000,
+  OAuthCredentialInvalid = 24001,
+  OAuthCredentialVerifyFailed = 24002,
+  OAuthCredentialNotFound = 24003,
+  OAuthCredentialDuplicate = 24004,
+
+  AiCredentialNotConfigured = 24010,
+  AiCredentialInvalid = 24011,
+  AiBudgetExceeded = 24012,
+  AiCredentialNotFound = 24013,
+  AiCredentialDuplicate = 24014,
+
+  CredentialAccessDenied = 24020,
 }
 
 /** Default message mapping. UI-facing tiếng Việt. */
@@ -210,4 +226,18 @@ export const ResponseMessage: Record<ResponseCode, string> = {
   [ResponseCode.WorkspaceMemberAlreadyExists]: 'Thành viên đã có trong workspace',
   [ResponseCode.WorkspaceCannotDeletePersonal]: 'Không thể xoá personal workspace',
   [ResponseCode.WorkspaceMemberLimitExceeded]: 'Workspace đã đạt giới hạn thành viên của gói',
+
+  [ResponseCode.OAuthCredentialNotConfigured]: 'OAuth credential chưa được cấu hình cho nền tảng này',
+  [ResponseCode.OAuthCredentialInvalid]: 'OAuth credential không hợp lệ',
+  [ResponseCode.OAuthCredentialVerifyFailed]: 'Xác minh OAuth credential thất bại',
+  [ResponseCode.OAuthCredentialNotFound]: 'Không tìm thấy OAuth credential',
+  [ResponseCode.OAuthCredentialDuplicate]: 'Đã tồn tại OAuth credential cho nền tảng này',
+
+  [ResponseCode.AiCredentialNotConfigured]: 'AI credential chưa được cấu hình',
+  [ResponseCode.AiCredentialInvalid]: 'AI credential không hợp lệ',
+  [ResponseCode.AiBudgetExceeded]: 'Đã vượt ngân sách AI tháng',
+  [ResponseCode.AiCredentialNotFound]: 'Không tìm thấy AI credential',
+  [ResponseCode.AiCredentialDuplicate]: 'Đã tồn tại AI credential cho provider này',
+
+  [ResponseCode.CredentialAccessDenied]: 'Không có quyền quản lý credential này',
 }

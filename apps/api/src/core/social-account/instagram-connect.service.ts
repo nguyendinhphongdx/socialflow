@@ -1,13 +1,15 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { AppException, ResponseCode } from '@sociflow/common'
+import { RequestContextService } from '@sociflow/auth'
 import {
   createInstagramProviderConfig,
   exchangeForLongLivedUserToken,
   fetchInstagramAccounts,
   OAuthService,
+  OAuthStateRepository,
   type OAuthProviderConfig,
 } from '@sociflow/oauth'
-import { APP_CONFIG, type AppConfig } from '../../config'
+import { OAuthCredentialResolver } from '../credential/oauth-credential-resolver'
 import { SocialAccountService } from './social-account.service'
 import { WorkspaceService } from '../workspace/workspace.service'
 
@@ -17,36 +19,51 @@ interface ConnectResult {
   returnUrl: string | null
 }
 
+interface ResolvedInstagramContext {
+  provider: OAuthProviderConfig
+  redirectUri: string
+}
+
 @Injectable()
 export class InstagramConnectService {
   private readonly logger = new Logger(InstagramConnectService.name)
-  private readonly provider: OAuthProviderConfig
 
   constructor(
     private readonly oauth: OAuthService,
+    private readonly stateRepo: OAuthStateRepository,
     private readonly accountService: SocialAccountService,
     private readonly workspaceService: WorkspaceService,
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
-  ) {
-    this.provider = createInstagramProviderConfig({
-      clientId: config.oauth.instagram.clientId,
-      clientSecret: config.oauth.instagram.clientSecret,
-    })
-  }
+    private readonly resolver: OAuthCredentialResolver,
+    private readonly ctx: RequestContextService,
+  ) {}
 
-  async buildAuthorizeUrl(userId: string, opts?: { returnUrl?: string, groupId?: string }) {
+  async buildAuthorizeUrl(userId: string, opts?: { returnUrl?: string, groupId?: string, workspaceId?: string }) {
+    const workspaceId = opts?.workspaceId ?? this.ctx.requireWorkspaceId()
+    const { provider, redirectUri } = await this.resolveContext(workspaceId)
     return this.oauth.buildAuthorizeUrl({
-      provider: this.provider,
+      provider,
       intent: 'CONNECT_ACCOUNT',
       userId,
-      redirectUri: this.config.oauth.instagram.redirectUri,
-      metadata: opts,
+      redirectUri,
+      metadata: { ...opts, workspaceId },
     })
   }
 
   async handleCallback(code: string, state: string): Promise<ConnectResult> {
+    const stateRow = await this.stateRepo.getByState(state)
+    if (!stateRow) throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'state_not_found' })
+    const meta = (stateRow.metadata as Record<string, unknown> | null) ?? {}
+    let workspaceId = typeof meta.workspaceId === 'string' ? meta.workspaceId : null
+    if (!workspaceId && stateRow.userId) {
+      workspaceId = await this.workspaceService.resolvePersonalWorkspaceId(stateRow.userId)
+    }
+    if (!workspaceId) {
+      throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'no_workspace_context' })
+    }
+    const { provider } = await this.resolveContext(workspaceId)
+
     const { tokens, intent, userId, metadata } = await this.oauth.exchangeCode({
-      provider: this.provider,
+      provider,
       state,
       code,
     })
@@ -57,16 +74,15 @@ export class InstagramConnectService {
 
     const longLived = await exchangeForLongLivedUserToken(
       tokens.accessToken,
-      this.provider.clientId,
-      this.provider.clientSecret,
+      provider.clientId,
+      provider.clientSecret,
     )
 
     const igAccounts = await fetchInstagramAccounts(longLived.accessToken)
 
-    // F-716 — workspaceId từ metadata, fallback personal workspace.
-    const workspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
+    const resolvedWorkspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
       || (await this.workspaceService.resolvePersonalWorkspaceId(userId))
-    if (!workspaceId) {
+    if (!resolvedWorkspaceId) {
       throw new AppException(ResponseCode.WorkspaceAccessDenied)
     }
 
@@ -74,15 +90,15 @@ export class InstagramConnectService {
     for (const ig of igAccounts) {
       const account = await this.accountService.saveOAuthTokens({
         userId,
-        workspaceId,
+        workspaceId: resolvedWorkspaceId,
         platform: 'INSTAGRAM',
         platformUid: ig.platformUid,
         displayName: ig.displayName,
         avatarUrl: ig.avatarUrl,
-        accessToken: ig.pageAccessToken,                        // dùng page token cho IG Graph calls
+        accessToken: ig.pageAccessToken,
         refreshToken: undefined,
         expiresIn: longLived.expiresIn,
-        scopes: this.provider.scopes,
+        scopes: provider.scopes,
         metadata: ig.metadata,
         groupId: typeof metadata?.groupId === 'string' ? metadata.groupId : undefined,
       })
@@ -97,7 +113,13 @@ export class InstagramConnectService {
     }
   }
 
-  getProviderConfig(): OAuthProviderConfig {
-    return this.provider
+  private async resolveContext(workspaceId: string): Promise<ResolvedInstagramContext> {
+    const resolved = await this.resolver.resolve('INSTAGRAM', workspaceId)
+    const provider = createInstagramProviderConfig({
+      clientId: resolved.clientId,
+      clientSecret: resolved.clientSecret,
+    })
+    if (resolved.scopes) provider.scopes = resolved.scopes
+    return { provider, redirectUri: resolved.redirectUri }
   }
 }

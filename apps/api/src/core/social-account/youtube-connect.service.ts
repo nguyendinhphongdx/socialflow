@@ -1,44 +1,63 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { AppException, ResponseCode } from '@sociflow/common'
+import { RequestContextService } from '@sociflow/auth'
 import {
   createYouTubeProviderConfig,
   fetchYouTubeChannel,
   OAuthService,
+  OAuthStateRepository,
   type OAuthProviderConfig,
 } from '@sociflow/oauth'
-import { APP_CONFIG, type AppConfig } from '../../config'
+import { OAuthCredentialResolver } from '../credential/oauth-credential-resolver'
 import { SocialAccountService } from './social-account.service'
 import { WorkspaceService } from '../workspace/workspace.service'
 
+interface ResolvedYouTubeContext {
+  provider: OAuthProviderConfig
+  redirectUri: string
+}
+
 @Injectable()
 export class YouTubeConnectService {
-  private readonly provider: OAuthProviderConfig
-
   constructor(
     private readonly oauth: OAuthService,
+    private readonly stateRepo: OAuthStateRepository,
     private readonly accountService: SocialAccountService,
     private readonly workspaceService: WorkspaceService,
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
-  ) {
-    this.provider = createYouTubeProviderConfig({
-      clientId: config.oauth.youtube.clientId,
-      clientSecret: config.oauth.youtube.clientSecret,
-    })
-  }
+    private readonly resolver: OAuthCredentialResolver,
+    private readonly ctx: RequestContextService,
+  ) {}
 
   async buildAuthorizeUrl(userId: string, opts?: { returnUrl?: string, groupId?: string, workspaceId?: string }) {
+    const workspaceId = opts?.workspaceId ?? this.ctx.requireWorkspaceId()
+    const { provider, redirectUri } = await this.resolveContext(workspaceId)
     return this.oauth.buildAuthorizeUrl({
-      provider: this.provider,
+      provider,
       intent: 'CONNECT_ACCOUNT',
       userId,
-      redirectUri: this.config.oauth.youtube.redirectUri,
-      metadata: opts,
+      redirectUri,
+      metadata: { ...opts, workspaceId },
     })
   }
 
   async handleCallback(code: string, state: string) {
+    // Khi callback, ta phải re-resolve provider config theo workspace lưu trong state.
+    // state row chứa redirectUri đã dùng + metadata.workspaceId.
+    const stateRow = await this.stateRepo.getByState(state)
+    if (!stateRow) throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'state_not_found' })
+    const meta = (stateRow.metadata as Record<string, unknown> | null) ?? {}
+    let workspaceId = typeof meta.workspaceId === 'string' ? meta.workspaceId : null
+
+    if (!workspaceId && stateRow.userId) {
+      workspaceId = await this.workspaceService.resolvePersonalWorkspaceId(stateRow.userId)
+    }
+    if (!workspaceId) {
+      throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'no_workspace_context' })
+    }
+    const { provider } = await this.resolveContext(workspaceId)
+
     const { tokens, intent, userId, metadata } = await this.oauth.exchangeCode({
-      provider: this.provider,
+      provider,
       state,
       code,
     })
@@ -49,16 +68,15 @@ export class YouTubeConnectService {
 
     const channel = await fetchYouTubeChannel(tokens.accessToken)
 
-    // F-716 — workspaceId từ metadata (lưu lúc authorize), fallback personal workspace.
-    const workspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
+    const resolvedWorkspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
       || (await this.workspaceService.resolvePersonalWorkspaceId(userId))
-    if (!workspaceId) {
+    if (!resolvedWorkspaceId) {
       throw new AppException(ResponseCode.WorkspaceAccessDenied)
     }
 
     const account = await this.accountService.saveOAuthTokens({
       userId,
-      workspaceId,
+      workspaceId: resolvedWorkspaceId,
       platform: 'YOUTUBE',
       platformUid: channel.platformUid,
       displayName: channel.displayName,
@@ -66,7 +84,7 @@ export class YouTubeConnectService {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresIn: tokens.expiresIn,
-      scopes: tokens.scope?.split(' ') ?? this.provider.scopes,
+      scopes: tokens.scope?.split(' ') ?? provider.scopes,
       metadata: channel.metadata,
       groupId: typeof metadata?.groupId === 'string' ? metadata.groupId : undefined,
     })
@@ -77,8 +95,9 @@ export class YouTubeConnectService {
     }
   }
 
-  async refreshAccessToken(accountId: string, encryptedRefreshToken: string, decryptedRefreshToken: string) {
-    const tokens = await this.oauth.refreshAccessToken(this.provider, decryptedRefreshToken)
+  async refreshAccessToken(accountId: string, _encryptedRefreshToken: string, decryptedRefreshToken: string, workspaceId: string) {
+    const { provider } = await this.resolveContext(workspaceId)
+    const tokens = await this.oauth.refreshAccessToken(provider, decryptedRefreshToken)
     return this.accountService.updateTokens(
       accountId,
       tokens.accessToken,
@@ -87,7 +106,16 @@ export class YouTubeConnectService {
     )
   }
 
-  getProviderConfig(): OAuthProviderConfig {
-    return this.provider
+  /**
+   * Resolve OAuth client config theo workspace BYOK → SYSTEM → ENV.
+   */
+  private async resolveContext(workspaceId: string): Promise<ResolvedYouTubeContext> {
+    const resolved = await this.resolver.resolve('YOUTUBE', workspaceId)
+    const provider = createYouTubeProviderConfig({
+      clientId: resolved.clientId,
+      clientSecret: resolved.clientSecret,
+    })
+    if (resolved.scopes) provider.scopes = resolved.scopes
+    return { provider, redirectUri: resolved.redirectUri }
   }
 }

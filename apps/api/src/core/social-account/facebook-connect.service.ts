@@ -1,13 +1,15 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { AppException, ResponseCode } from '@sociflow/common'
+import { RequestContextService } from '@sociflow/auth'
 import {
   createFacebookProviderConfig,
   exchangeForLongLivedUserToken,
   fetchFacebookPages,
   OAuthService,
+  OAuthStateRepository,
   type OAuthProviderConfig,
 } from '@sociflow/oauth'
-import { APP_CONFIG, type AppConfig } from '../../config'
+import { OAuthCredentialResolver } from '../credential/oauth-credential-resolver'
 import { SocialAccountService } from './social-account.service'
 import { WorkspaceService } from '../workspace/workspace.service'
 
@@ -17,41 +19,51 @@ interface ConnectResult {
   returnUrl: string | null
 }
 
+interface ResolvedFacebookContext {
+  provider: OAuthProviderConfig
+  redirectUri: string
+}
+
 @Injectable()
 export class FacebookConnectService {
   private readonly logger = new Logger(FacebookConnectService.name)
-  private readonly provider: OAuthProviderConfig
 
   constructor(
     private readonly oauth: OAuthService,
+    private readonly stateRepo: OAuthStateRepository,
     private readonly accountService: SocialAccountService,
     private readonly workspaceService: WorkspaceService,
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
-  ) {
-    this.provider = createFacebookProviderConfig({
-      clientId: config.oauth.facebook.clientId,
-      clientSecret: config.oauth.facebook.clientSecret,
-    })
-  }
+    private readonly resolver: OAuthCredentialResolver,
+    private readonly ctx: RequestContextService,
+  ) {}
 
-  async buildAuthorizeUrl(userId: string, opts?: { returnUrl?: string, groupId?: string }) {
+  async buildAuthorizeUrl(userId: string, opts?: { returnUrl?: string, groupId?: string, workspaceId?: string }) {
+    const workspaceId = opts?.workspaceId ?? this.ctx.requireWorkspaceId()
+    const { provider, redirectUri } = await this.resolveContext(workspaceId)
     return this.oauth.buildAuthorizeUrl({
-      provider: this.provider,
+      provider,
       intent: 'CONNECT_ACCOUNT',
       userId,
-      redirectUri: this.config.oauth.facebook.redirectUri,
-      metadata: opts,
+      redirectUri,
+      metadata: { ...opts, workspaceId },
     })
   }
 
-  /**
-   * Callback handler: code → user token → long-lived → list pages → save 1 SocialAccount/page.
-   *
-   * Lưu ý: 1 user FB có thể manage nhiều pages → tạo nhiều SocialAccount (1/page).
-   */
   async handleCallback(code: string, state: string): Promise<ConnectResult> {
+    const stateRow = await this.stateRepo.getByState(state)
+    if (!stateRow) throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'state_not_found' })
+    const meta = (stateRow.metadata as Record<string, unknown> | null) ?? {}
+    let workspaceId = typeof meta.workspaceId === 'string' ? meta.workspaceId : null
+    if (!workspaceId && stateRow.userId) {
+      workspaceId = await this.workspaceService.resolvePersonalWorkspaceId(stateRow.userId)
+    }
+    if (!workspaceId) {
+      throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'no_workspace_context' })
+    }
+    const { provider } = await this.resolveContext(workspaceId)
+
     const { tokens, intent, userId, metadata } = await this.oauth.exchangeCode({
-      provider: this.provider,
+      provider,
       state,
       code,
     })
@@ -60,11 +72,10 @@ export class FacebookConnectService {
       throw new AppException(ResponseCode.AccountOAuthFailed, { reason: 'unexpected_intent' })
     }
 
-    // Exchange short-lived → long-lived user token
     const longLived = await exchangeForLongLivedUserToken(
       tokens.accessToken,
-      this.provider.clientId,
-      this.provider.clientSecret,
+      provider.clientId,
+      provider.clientSecret,
     )
 
     const pages = await fetchFacebookPages(longLived.accessToken)
@@ -75,10 +86,9 @@ export class FacebookConnectService {
       })
     }
 
-    // F-716 — workspaceId từ metadata, fallback personal workspace.
-    const workspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
+    const resolvedWorkspaceId = (typeof metadata?.workspaceId === 'string' && metadata.workspaceId)
       || (await this.workspaceService.resolvePersonalWorkspaceId(userId))
-    if (!workspaceId) {
+    if (!resolvedWorkspaceId) {
       throw new AppException(ResponseCode.WorkspaceAccessDenied)
     }
 
@@ -86,15 +96,15 @@ export class FacebookConnectService {
     for (const page of pages) {
       const account = await this.accountService.saveOAuthTokens({
         userId,
-        workspaceId,
+        workspaceId: resolvedWorkspaceId,
         platform: 'FACEBOOK',
         platformUid: page.platformUid,
         displayName: page.displayName,
         avatarUrl: page.avatarUrl,
         accessToken: page.pageAccessToken,
-        refreshToken: undefined,                              // page token không có refresh, dùng lâu (60d)
+        refreshToken: undefined,
         expiresIn: longLived.expiresIn,
-        scopes: this.provider.scopes,
+        scopes: provider.scopes,
         metadata: page.metadata,
         groupId: typeof metadata?.groupId === 'string' ? metadata.groupId : undefined,
       })
@@ -109,7 +119,13 @@ export class FacebookConnectService {
     }
   }
 
-  getProviderConfig(): OAuthProviderConfig {
-    return this.provider
+  private async resolveContext(workspaceId: string): Promise<ResolvedFacebookContext> {
+    const resolved = await this.resolver.resolve('FACEBOOK', workspaceId)
+    const provider = createFacebookProviderConfig({
+      clientId: resolved.clientId,
+      clientSecret: resolved.clientSecret,
+    })
+    if (resolved.scopes) provider.scopes = resolved.scopes
+    return { provider, redirectUri: resolved.redirectUri }
   }
 }

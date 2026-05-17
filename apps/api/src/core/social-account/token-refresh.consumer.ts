@@ -48,7 +48,7 @@ export class TokenRefreshConsumer extends WorkerHost {
     try {
       switch (platform) {
         case 'YOUTUBE':
-          await this.youtube.refreshAccessToken(account.id, account.refreshToken, decryptedRefresh)
+          await this.youtube.refreshAccessToken(account.id, account.refreshToken, decryptedRefresh, account.workspaceId)
           this.logger.log(`Refreshed token for YT account ${account.id}`)
           return
         default:

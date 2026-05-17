@@ -18,6 +18,14 @@ export const GenerateCaptionTone = z.enum([
   'funny',
 ])
 
+// ADR-0010 BYOK — credential forwarded từ apps/api (resolved workspace credential).
+const AiCredentialPayloadSchema = z.object({
+  provider: z.enum(['OPENAI', 'ANTHROPIC', 'GOOGLE_GEMINI']),
+  apiKey: z.string(),                       // empty = fallback env
+  baseUrl: z.string().nullish(),
+  model: z.string().nullish(),
+}).strict()
+
 export const GenerateCaptionDtoSchema = z.object({
   topic: z.string().min(1).max(500)
     .describe('Chủ đề / brief muốn AI viết caption'),
@@ -33,6 +41,8 @@ export const GenerateCaptionDtoSchema = z.object({
     .describe('Có sinh kèm hashtag hay không'),
   providerId: z.enum(['openai', 'anthropic']).optional()
     .describe('Override default text provider'),
+  credential: AiCredentialPayloadSchema.optional()
+    .describe('BYOK credential (ADR-0010) — apps/api resolve và forward xuống đây'),
 }).strict()
 
 export class GenerateCaptionDto extends createZodDto(GenerateCaptionDtoSchema, 'GenerateCaptionDto') {}
@@ -56,6 +66,8 @@ export const GenerateImageDtoSchema = z.object({
     .describe('Style (vivid: rực rỡ, natural: tự nhiên)'),
   providerId: z.enum(['openai']).optional()
     .describe('Override default image provider'),
+  credential: AiCredentialPayloadSchema.optional()
+    .describe('BYOK credential (ADR-0010)'),
 }).strict()
 
 export class GenerateImageDto extends createZodDto(GenerateImageDtoSchema, 'GenerateImageDto') {}

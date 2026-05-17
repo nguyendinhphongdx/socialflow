@@ -17,6 +17,19 @@ interface EchoResponse {
   service: string
 }
 
+/**
+ * Forward credential từ apps/api → apps/ai. Khi `apiKey === ''` apps/ai dùng
+ * env mặc định (backward compat). Khi != '' apps/ai dùng key này thay env.
+ *
+ * ADR-0010 BYOK.
+ */
+export interface AiCredentialPayload {
+  provider: 'OPENAI' | 'ANTHROPIC' | 'GOOGLE_GEMINI'
+  apiKey: string
+  baseUrl?: string | null
+  model?: string | null
+}
+
 export interface GenerateCaptionInput {
   topic: string
   platform: 'YOUTUBE' | 'FACEBOOK' | 'INSTAGRAM' | 'TIKTOK'
@@ -25,6 +38,7 @@ export interface GenerateCaptionInput {
   maxLength?: number
   includeHashtags?: boolean
   providerId?: 'openai' | 'anthropic'
+  credential?: AiCredentialPayload
 }
 
 export interface GenerateCaptionOutput {
@@ -32,6 +46,8 @@ export interface GenerateCaptionOutput {
   hashtags: string[]
   model: string
   tokensUsed?: number
+  inputTokens?: number
+  outputTokens?: number
 }
 
 export interface GenerateImageInput {
@@ -40,6 +56,7 @@ export interface GenerateImageInput {
   quality?: 'standard' | 'hd'
   style?: 'vivid' | 'natural'
   providerId?: 'openai'
+  credential?: AiCredentialPayload
 }
 
 export interface GenerateImageOutput {
@@ -54,6 +71,7 @@ export interface ClassifySentimentInput {
   text: string
   languageCode?: string
   providerId?: 'openai' | 'anthropic'
+  credential?: AiCredentialPayload
 }
 
 export interface ClassifySentimentOutput {

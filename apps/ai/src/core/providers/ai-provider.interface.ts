@@ -3,11 +3,19 @@
  *
  * - Mỗi provider implement chung 1 contract → registry pattern chọn theo `id`.
  * - `generateImage` optional (Anthropic không có image gen API tại thời điểm hiện tại).
+ * - `credential` (ADR-0010 BYOK): khi caller truyền apiKey custom, provider khởi
+ *   tạo client per-call thay vì dùng env default.
  */
 export interface AiProvider {
   readonly id: string
-  generateText: (input: GenerateTextInput) => Promise<GenerateTextResult>
-  generateImage?: (input: GenerateImageInput) => Promise<GenerateImageResult>
+  generateText: (input: GenerateTextInput, credential?: AiCredentialOverride) => Promise<GenerateTextResult>
+  generateImage?: (input: GenerateImageInput, credential?: AiCredentialOverride) => Promise<GenerateImageResult>
+}
+
+export interface AiCredentialOverride {
+  apiKey: string                  // empty string = fallback env
+  baseUrl?: string | null
+  model?: string | null
 }
 
 export interface GenerateTextInput {
@@ -20,6 +28,8 @@ export interface GenerateTextInput {
 export interface GenerateTextResult {
   text: string
   tokensUsed?: number
+  inputTokens?: number
+  outputTokens?: number
   model: string
 }
 

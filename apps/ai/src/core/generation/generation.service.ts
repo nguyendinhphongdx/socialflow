@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ProviderRegistry } from '../providers/provider-registry'
+import type { AiCredentialOverride } from '../providers/ai-provider.interface'
 import type {
   GenerateCaptionDto,
   GenerateImageDto,
@@ -10,6 +11,8 @@ interface CaptionResult {
   hashtags: string[]
   model: string
   tokensUsed?: number
+  inputTokens?: number
+  outputTokens?: number
 }
 
 interface ImageResult {
@@ -30,7 +33,7 @@ export class GenerationService {
   constructor(private readonly registry: ProviderRegistry) {}
 
   async generateCaption(dto: GenerateCaptionDto): Promise<CaptionResult> {
-    const provider = this.registry.getForText(dto.providerId)
+    const { provider, credential } = this.pickTextProvider(dto)
     const systemPrompt = this.buildCaptionSystemPrompt(dto)
     const userPrompt = this.buildCaptionUserPrompt(dto)
 
@@ -39,7 +42,7 @@ export class GenerationService {
       systemPrompt,
       maxTokens: this.estimateMaxTokens(dto.maxLength),
       temperature: 0.7,
-    })
+    }, credential)
 
     const { caption, hashtags } = this.parseCaptionOutput(result.text, dto.includeHashtags)
     return {
@@ -47,19 +50,55 @@ export class GenerationService {
       hashtags,
       model: result.model,
       tokensUsed: result.tokensUsed,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
     }
   }
 
   async generateImage(dto: GenerateImageDto): Promise<ImageResult> {
-    const provider = this.registry.getForImage(dto.providerId)
-    // generateImage tồn tại vì registry.getForImage đã check
-    const result = await provider.generateImage!({
+    const credential = this.extractCredential(dto.credential)
+    const provider = dto.credential
+      ? this.registry.getByEnum(dto.credential.provider)
+      : this.registry.getForImage(dto.providerId)
+    if (!provider.generateImage) {
+      // Defensive — credential override với provider không support image (anthropic)
+      const fallback = this.registry.getForImage(dto.providerId)
+      const result = await fallback.generateImage!({
+        prompt: dto.prompt,
+        size: dto.size,
+        quality: dto.quality,
+        style: dto.style,
+      }, credential)
+      return result
+    }
+    const result = await provider.generateImage({
       prompt: dto.prompt,
       size: dto.size,
       quality: dto.quality,
       style: dto.style,
-    })
+    }, credential)
     return result
+  }
+
+  /**
+   * Provider resolution priority: BYOK credential.provider > dto.providerId > default.
+   */
+  private pickTextProvider(dto: GenerateCaptionDto): {
+    provider: ReturnType<ProviderRegistry['getForText']>
+    credential: AiCredentialOverride | undefined
+  } {
+    if (dto.credential) {
+      return {
+        provider: this.registry.getByEnum(dto.credential.provider),
+        credential: this.extractCredential(dto.credential),
+      }
+    }
+    return { provider: this.registry.getForText(dto.providerId), credential: undefined }
+  }
+
+  private extractCredential(c?: GenerateCaptionDto['credential']): AiCredentialOverride | undefined {
+    if (!c || !c.apiKey) return undefined
+    return { apiKey: c.apiKey, baseUrl: c.baseUrl ?? null, model: c.model ?? null }
   }
 
   private buildCaptionSystemPrompt(dto: GenerateCaptionDto): string {

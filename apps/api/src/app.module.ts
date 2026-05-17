@@ -31,6 +31,7 @@ import { CreditsModule } from './core/credits/credits.module'
 import { NotificationModule } from './core/notification/notification.module'
 import { ApiKeyModule } from './core/api-key/api-key.module'
 import { WorkspaceModule } from './core/workspace/workspace.module'
+import { CredentialModule } from './core/credential/credential.module'
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { WorkspaceModule } from './core/workspace/workspace.module'
     UserModule,
     WorkspaceModule,         // F-716 — multi-tenant. Must register BEFORE AuthModule
                              // vì AuthService inject WorkspaceService cho register/login flow.
+    CredentialModule,        // ADR-0010 — BYOK. Global module, register trước SocialAccount/Ai.
     AuthModule,
     SocialAccountModule,
     MediaModule,

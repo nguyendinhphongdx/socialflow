@@ -49,4 +49,20 @@ export class ProviderRegistry {
     }
     return provider
   }
+
+  /**
+   * Map AiProvider enum (UPPERCASE) → provider id (lowercase) lookup.
+   * Forward credential.provider từ apps/api caller chain (ADR-0010).
+   */
+  getByEnum(enumProvider: 'OPENAI' | 'ANTHROPIC' | 'GOOGLE_GEMINI'): AiProvider {
+    const lower = enumProvider.toLowerCase() === 'google_gemini' ? 'gemini' : enumProvider.toLowerCase()
+    const provider = this.providers.get(lower)
+    if (!provider) {
+      throw new AppException(ResponseCode.AiGenerationFailed, {
+        reason: 'provider_not_found',
+        providerId: enumProvider,
+      })
+    }
+    return provider
+  }
 }

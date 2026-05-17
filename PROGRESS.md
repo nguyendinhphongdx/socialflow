@@ -2,7 +2,7 @@
 title: Sociflow — Progress tracker
 description: Trạng thái build theo roadmap. Update mỗi khi đẩy feature mới.
 last_updated: 2026-05-17
-revision: 7 — Wave 1-9 multi-agent execution: security/layering/tests, F-7xx complete (21/23), Phase 5+6 polish, F-716 multi-tenant landed
+revision: 8 — Wave 10 BYOK (OAuth + AI credentials) — workspace/system/env 3-layer fallback + Settings 3-tabs UI + Connect wizard 3-step; eliminates App Review hard dependency
 ---
 
 # Sociflow Progress Tracker

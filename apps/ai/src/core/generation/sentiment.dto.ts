@@ -8,6 +8,13 @@ import { createZodDto } from '@sociflow/common'
 export const SentimentLabel = z.enum(['POSITIVE', 'NEGATIVE', 'NEUTRAL'])
 export type SentimentLabelType = z.infer<typeof SentimentLabel>
 
+const AiCredentialPayloadSchema = z.object({
+  provider: z.enum(['OPENAI', 'ANTHROPIC', 'GOOGLE_GEMINI']),
+  apiKey: z.string(),
+  baseUrl: z.string().nullish(),
+  model: z.string().nullish(),
+}).strict()
+
 export const ClassifySentimentDtoSchema = z.object({
   text: z.string().min(1).max(5000)
     .describe('Văn bản cần phân loại sentiment'),
@@ -15,6 +22,8 @@ export const ClassifySentimentDtoSchema = z.object({
     .describe('Mã ngôn ngữ đầu vào (ISO 639-1) — gợi ý LLM'),
   providerId: z.enum(['openai', 'anthropic']).optional()
     .describe('Override default text provider'),
+  credential: AiCredentialPayloadSchema.optional()
+    .describe('BYOK credential (ADR-0010)'),
 }).strict()
 
 export class ClassifySentimentDto extends createZodDto(ClassifySentimentDtoSchema, 'ClassifySentimentDto') {}

@@ -79,6 +79,8 @@ model Workspace {
   publishRecords PublishRecord[]
   drafts         Draft[]
   mediaAssets    MediaAsset[]
+  oauthCredentials OAuthCredential[]
+  aiCredentials    AiCredential[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -857,4 +859,75 @@ model PushSubscription {
 
   @@index([userId])
   @@map("push_subscriptions")
+}
+
+// ============================================
+// BYOK CREDENTIALS — ADR-0010
+// ============================================
+
+/// Scope của credential — quyết định lookup order.
+/// - SYSTEM: 1 row per platform/provider, admin global setup (self-host).
+/// - WORKSPACE: workspace-level BYOK, owner/admin manage qua UI.
+enum CredentialScope {
+  SYSTEM
+  WORKSPACE
+}
+
+/// AI provider supported cho BYOK.
+enum AiProvider {
+  OPENAI
+  ANTHROPIC
+  GOOGLE_GEMINI
+}
+
+/// OAuth app credentials (Client ID + Secret) cho 4 platform.
+/// Resolver lookup chain: WORKSPACE → SYSTEM → .env fallback.
+/// clientSecret encrypted AES-256-GCM trước khi lưu.
+model OAuthCredential {
+  id           String          @id @default(cuid())
+  scope        CredentialScope
+  workspaceId  String?
+  workspace    Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  platform     AccountPlatform
+  clientId     String
+  clientSecret String          // AES-256-GCM encrypted
+  redirectUri  String          // user copy paste vào platform dev console
+  scopes       String[]        // override default scopes nếu cần
+  isActive     Boolean         @default(true)
+  notes        String?         // free-form audit hint "Brand X agency app"
+  createdBy    String          // userId audit
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([scope, workspaceId, platform])
+  @@index([workspaceId])
+  @@index([platform])
+  @@map("oauth_credentials")
+}
+
+/// AI provider API key. Resolver chain giống OAuthCredential.
+/// apiKey encrypted AES-256-GCM.
+/// monthSpentUsd tracked qua AiCredentialResolver.incrementSpent().
+model AiCredential {
+  id               String          @id @default(cuid())
+  scope            CredentialScope
+  workspaceId      String?
+  workspace        Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider         AiProvider
+  apiKey           String          // AES-256-GCM encrypted
+  baseUrl          String?         // custom proxy (Cloudflare AI gateway, OpenRouter, ...)
+  model            String?         // default model override (vd "gpt-4o-mini")
+  isActive         Boolean         @default(true)
+  monthlyBudgetUsd Decimal?        @db.Decimal(10, 4)
+  monthSpentUsd    Decimal         @default(0) @db.Decimal(10, 4)
+  monthResetAt     DateTime        @default(now())     // last cron reset timestamp
+  notes            String?
+  createdBy        String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([scope, workspaceId, provider])
+  @@index([workspaceId])
+  @@index([provider])
+  @@map("ai_credentials")
 }

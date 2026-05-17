@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { AppException, ResponseCode } from '@sociflow/common'
 import { APP_CONFIG, type AppConfig } from '../../config'
 import type {
+  AiCredentialOverride,
   AiProvider,
   GenerateImageInput,
   GenerateImageResult,
@@ -15,20 +16,20 @@ export class OpenAiProvider implements AiProvider {
   readonly id = 'openai'
 
   private readonly logger = new Logger(OpenAiProvider.name)
-  private readonly client: OpenAI | null
-  private readonly textModel: string
-  private readonly imageModel: string
+  private readonly defaultClient: OpenAI | null
+  private readonly defaultTextModel: string
+  private readonly defaultImageModel: string
 
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {
-    this.textModel = config.ai.openai.textModel
-    this.imageModel = config.ai.openai.imageModel
-    this.client = config.ai.openai.apiKey
+    this.defaultTextModel = config.ai.openai.textModel
+    this.defaultImageModel = config.ai.openai.imageModel
+    this.defaultClient = config.ai.openai.apiKey
       ? new OpenAI({ apiKey: config.ai.openai.apiKey })
       : null
   }
 
-  async generateText(input: GenerateTextInput): Promise<GenerateTextResult> {
-    const client = this.requireClient()
+  async generateText(input: GenerateTextInput, credential?: AiCredentialOverride): Promise<GenerateTextResult> {
+    const { client, model } = this.resolveClient(credential, this.defaultTextModel)
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = []
     if (input.systemPrompt) {
@@ -38,7 +39,7 @@ export class OpenAiProvider implements AiProvider {
 
     try {
       const completion = await client.chat.completions.create({
-        model: this.textModel,
+        model,
         messages,
         max_tokens: input.maxTokens,
         temperature: input.temperature ?? 0.7,
@@ -53,6 +54,8 @@ export class OpenAiProvider implements AiProvider {
       return {
         text,
         tokensUsed: completion.usage?.total_tokens,
+        inputTokens: completion.usage?.prompt_tokens,
+        outputTokens: completion.usage?.completion_tokens,
         model: completion.model,
       }
     }
@@ -66,12 +69,12 @@ export class OpenAiProvider implements AiProvider {
     }
   }
 
-  async generateImage(input: GenerateImageInput): Promise<GenerateImageResult> {
-    const client = this.requireClient()
+  async generateImage(input: GenerateImageInput, credential?: AiCredentialOverride): Promise<GenerateImageResult> {
+    const { client, model } = this.resolveClient(credential, this.defaultImageModel)
 
     try {
       const response = await client.images.generate({
-        model: this.imageModel,
+        model,
         prompt: input.prompt,
         size: input.size ?? '1024x1024',
         quality: input.quality ?? 'standard',
@@ -88,7 +91,7 @@ export class OpenAiProvider implements AiProvider {
       return {
         imageUrl: image.url,
         revisedPrompt: image.revised_prompt,
-        model: this.imageModel,
+        model,
       }
     }
     catch (err) {
@@ -101,13 +104,27 @@ export class OpenAiProvider implements AiProvider {
     }
   }
 
-  private requireClient(): OpenAI {
-    if (!this.client) {
+  /**
+   * Resolve client per-call: BYOK credential (apiKey non-empty) → tạo client mới.
+   * Fallback: defaultClient (env).
+   */
+  private resolveClient(
+    credential: AiCredentialOverride | undefined,
+    fallbackModel: string,
+  ): { client: OpenAI, model: string } {
+    if (credential?.apiKey) {
+      const client = new OpenAI({
+        apiKey: credential.apiKey,
+        ...(credential.baseUrl && { baseURL: credential.baseUrl }),
+      })
+      return { client, model: credential.model ?? fallbackModel }
+    }
+    if (!this.defaultClient) {
       throw new AppException(ResponseCode.AiGenerationFailed, {
         provider: this.id,
         reason: 'api_key_missing',
       })
     }
-    return this.client
+    return { client: this.defaultClient, model: fallbackModel }
   }
 }

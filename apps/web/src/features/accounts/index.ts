@@ -1,5 +1,7 @@
 export { AccountsView } from './views/AccountsView'
+export { AccountConnectWizardView } from './views/AccountConnectWizardView'
 export { AccountCard } from './components/AccountCard'
 export { useAccounts, useAccount, useDisconnectAccount, accountKeys } from './hooks/useAccounts'
 export { accountService, connectAccountUrl } from './services/accountService'
+export { RECOMMENDED_MODE } from './wizard/wizardState'
 export type { SocialAccount, AccountPlatform, AccountStatus, PublishMode, ListAccountsQuery } from './types'
