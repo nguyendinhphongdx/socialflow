@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.0",
-    "@nestjs/common": "^11.0.0",
+    "@nestjs/common": "^11.1.24",
     "@sociflow/auth": "workspace:*",
     "@sociflow/common": "workspace:*",
     "bullmq": "^5.0.0",
